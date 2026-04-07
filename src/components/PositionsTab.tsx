@@ -1,0 +1,236 @@
+import { useState } from 'react'
+import type { Position } from '@/types'
+import { daysUntilExpiry } from '@/lib/calculations'
+import { PositionCard } from '@/components/PositionCard'
+import { AddPositionForm } from '@/components/AddPositionForm'
+import { Button } from '@/components/ui/button'
+import { Plus, Layers, TrendingUp as TrendingUpIcon, BarChart3, RefreshCw } from 'lucide-react'
+import { fetchQuotes } from '@/lib/marketData'
+import { showToast } from '@/components/ui/toast'
+
+interface PositionsTabProps {
+  positions: Position[]
+  onAdd: (pos: Omit<Position, 'id' | 'isClosed'>) => void
+  onClose: (id: string, closePremium: number) => void
+  onUpdate: (id: string, updates: Partial<Position>) => void
+  onDelete: (id: string) => void
+  apiKey: string
+}
+
+export function PositionsTab({ positions, onAdd, onClose, onUpdate, onDelete, apiKey }: PositionsTabProps) {
+  const [showAddForm, setShowAddForm] = useState(false)
+  const [refreshing, setRefreshing] = useState(false)
+
+  // Categorize positions
+  const leapCalls = positions.filter(p => {
+    if (p.type !== 'leap_call') return false
+    if (!p.expirationDate) return true
+    return daysUntilExpiry(p.expirationDate) > 90
+  })
+
+  const stocks = positions.filter(p => p.type === 'stock')
+
+  const sellPuts = positions
+    .filter(p => p.type === 'sell_put')
+    .sort((a, b) => {
+      if (!a.expirationDate) return 1
+      if (!b.expirationDate) return -1
+      return new Date(a.expirationDate).getTime() - new Date(b.expirationDate).getTime()
+    })
+
+  // Also include LEAP calls with <= 90 DTE (they've become short-term)
+  const shortTermCalls = positions.filter(p => {
+    if (p.type !== 'leap_call') return false
+    if (!p.expirationDate) return false
+    return daysUntilExpiry(p.expirationDate) <= 90
+  })
+
+  const totalPositions = positions.length
+
+  const handleAdd = (pos: Omit<Position, 'id' | 'isClosed'>) => {
+    onAdd(pos)
+    setShowAddForm(false)
+  }
+
+  const handleRefreshQuotes = async () => {
+    if (!apiKey) {
+      showToast('请先在设置中配置 API Key', 'error')
+      return
+    }
+    const tickers = [...new Set(positions.map(p => p.ticker.toUpperCase()))]
+    if (tickers.length === 0) {
+      showToast('暂无持仓', 'error')
+      return
+    }
+    setRefreshing(true)
+    try {
+      const quotes = await fetchQuotes(tickers, apiKey)
+      let updated = 0
+      for (const pos of positions) {
+        const quote = quotes[pos.ticker.toUpperCase()]
+        if (quote) {
+          onUpdate(pos.id, { currentPrice: quote.price })
+          updated++
+        }
+      }
+      showToast(`已更新 ${updated} 个持仓的股价`, 'success')
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : '刷新失败', 'error')
+    } finally {
+      setRefreshing(false)
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-4 pb-4 animate-fade-in">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-profit/10">
+            <Layers className="h-5 w-5 text-profit" />
+          </div>
+          <div>
+            <h2 className="text-lg font-semibold text-foreground">当前持仓</h2>
+            <p className="text-xs text-muted-foreground">共 {totalPositions} 个活跃持仓</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          {totalPositions > 0 && (
+            <Button size="sm" variant="outline" onClick={handleRefreshQuotes} disabled={refreshing}>
+              <RefreshCw className={`h-4 w-4 mr-1 ${refreshing ? 'animate-spin' : ''}`} />
+              {refreshing ? '刷新中' : '刷新行情'}
+            </Button>
+          )}
+          <Button size="sm" onClick={() => setShowAddForm(!showAddForm)}>
+            <Plus className="h-4 w-4 mr-1" />
+            建仓
+          </Button>
+        </div>
+      </div>
+
+      {/* Add Form */}
+      {showAddForm && (
+        <AddPositionForm onAdd={handleAdd} onCancel={() => setShowAddForm(false)} apiKey={apiKey} />
+      )}
+
+      {/* Empty state */}
+      {totalPositions === 0 && !showAddForm && (
+        <div className="flex flex-col items-center justify-center py-16 text-center">
+          <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-secondary mb-4">
+            <BarChart3 className="h-8 w-8 text-muted-foreground" />
+          </div>
+          <p className="text-sm text-muted-foreground mb-1">暂无持仓</p>
+          <p className="text-xs text-muted-foreground">点击右上角「建仓」添加第一个持仓</p>
+        </div>
+      )}
+
+      {/* LEAP Calls Section */}
+      {leapCalls.length > 0 && (
+        <Section
+          icon={<TrendingUpIcon className="h-4 w-4 text-profit" />}
+          title="LEAP Call"
+          count={leapCalls.length}
+          subtitle=">90天长期看涨"
+        >
+          {leapCalls.map(pos => (
+            <PositionCard
+              key={pos.id}
+              position={pos}
+              onClose={onClose}
+              onUpdate={onUpdate}
+              onDelete={onDelete}
+            />
+          ))}
+        </Section>
+      )}
+
+      {/* Short-term calls (former LEAPs) */}
+      {shortTermCalls.length > 0 && (
+        <Section
+          icon={<TrendingUpIcon className="h-4 w-4 text-warning" />}
+          title="Short-term Call"
+          count={shortTermCalls.length}
+          subtitle="原LEAP已<90天"
+        >
+          {shortTermCalls.map(pos => (
+            <PositionCard
+              key={pos.id}
+              position={pos}
+              onClose={onClose}
+              onUpdate={onUpdate}
+              onDelete={onDelete}
+            />
+          ))}
+        </Section>
+      )}
+
+      {/* Stocks Section */}
+      {stocks.length > 0 && (
+        <Section
+          icon={<BarChart3 className="h-4 w-4 text-primary" />}
+          title="正股 Stock"
+          count={stocks.length}
+          subtitle="股票持仓"
+        >
+          {stocks.map(pos => (
+            <PositionCard
+              key={pos.id}
+              position={pos}
+              onClose={onClose}
+              onUpdate={onUpdate}
+              onDelete={onDelete}
+            />
+          ))}
+        </Section>
+      )}
+
+      {/* Sell Puts Section */}
+      {sellPuts.length > 0 && (
+        <Section
+          icon={<Layers className="h-4 w-4 text-primary" />}
+          title="Sell Put"
+          count={sellPuts.length}
+          subtitle="按到期日排序"
+        >
+          {sellPuts.map(pos => (
+            <PositionCard
+              key={pos.id}
+              position={pos}
+              onClose={onClose}
+              onUpdate={onUpdate}
+              onDelete={onDelete}
+            />
+          ))}
+        </Section>
+      )}
+    </div>
+  )
+}
+
+function Section({
+  icon,
+  title,
+  count,
+  subtitle,
+  children,
+}: {
+  icon: React.ReactNode
+  title: string
+  count: number
+  subtitle: string
+  children: React.ReactNode
+}) {
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex items-center gap-2 px-1">
+        {icon}
+        <span className="text-sm font-medium text-foreground">{title}</span>
+        <span className="text-xs text-muted-foreground">({count})</span>
+        <span className="text-[10px] text-muted-foreground ml-auto">{subtitle}</span>
+      </div>
+      <div className="flex flex-col gap-2">
+        {children}
+      </div>
+    </div>
+  )
+}

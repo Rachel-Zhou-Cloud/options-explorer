@@ -1,0 +1,130 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Deep dark fintech palette */
+    --background: 225 25% 6%;
+    --foreground: 210 40% 96%;
+    --card: 225 20% 9%;
+    --card-foreground: 210 40% 96%;
+    --popover: 225 20% 9%;
+    --popover-foreground: 210 40% 96%;
+    --primary: 217 91% 60%;
+    --primary-foreground: 225 25% 6%;
+    --secondary: 225 15% 15%;
+    --secondary-foreground: 210 30% 80%;
+    --muted: 225 15% 13%;
+    --muted-foreground: 215 15% 50%;
+    --accent: 225 15% 15%;
+    --accent-foreground: 210 30% 85%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 225 15% 16%;
+    --input: 225 15% 16%;
+    --ring: 217 91% 60%;
+    --radius: 0.75rem;
+
+    /* Semantic finance colors */
+    --profit: 152 69% 45%;
+    --profit-foreground: 152 69% 95%;
+    --profit-muted: 152 40% 12%;
+    --loss: 0 72% 51%;
+    --loss-foreground: 0 72% 95%;
+    --loss-muted: 0 40% 12%;
+    --warning: 38 92% 50%;
+    --warning-foreground: 38 92% 95%;
+    --warning-muted: 38 40% 12%;
+
+    /* Gradients */
+    --gradient-primary: linear-gradient(135deg, hsl(217 91% 60%), hsl(230 80% 70%));
+    --gradient-profit: linear-gradient(135deg, hsl(152 69% 45%), hsl(160 60% 55%));
+    --gradient-loss: linear-gradient(135deg, hsl(0 72% 51%), hsl(10 60% 60%));
+    --gradient-card: linear-gradient(145deg, hsl(225 20% 10%), hsl(225 20% 8%));
+    --gradient-surface: linear-gradient(180deg, hsl(225 25% 7%), hsl(225 25% 5%));
+
+    /* Shadows */
+    --shadow-card: 0 4px 24px -4px hsl(225 50% 4% / 0.5);
+    --shadow-glow-primary: 0 0 24px -4px hsl(217 91% 60% / 0.3);
+    --shadow-glow-profit: 0 0 16px -4px hsl(152 69% 45% / 0.3);
+    --shadow-glow-loss: 0 0 16px -4px hsl(0 72% 51% / 0.3);
+    --shadow-glow-warning: 0 0 16px -4px hsl(38 92% 50% / 0.3);
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings: "rlig" 1, "calt" 1;
+    -webkit-tap-highlight-color: transparent;
+  }
+  /* Hide scrollbar for mobile feel */
+  ::-webkit-scrollbar {
+    width: 4px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: hsl(var(--muted));
+    border-radius: 4px;
+  }
+}
+
+@layer components {
+  .card-elevated {
+    background: var(--gradient-card);
+    box-shadow: var(--shadow-card);
+    @apply rounded-lg border;
+  }
+  .glow-primary {
+    box-shadow: var(--shadow-glow-primary);
+  }
+  .glow-profit {
+    box-shadow: var(--shadow-glow-profit);
+  }
+  .glow-loss {
+    box-shadow: var(--shadow-glow-loss);
+  }
+  .glow-warning {
+    box-shadow: var(--shadow-glow-warning);
+  }
+  .badge-profit {
+    @apply bg-profit-muted text-profit rounded-md px-2 py-0.5 text-xs font-medium;
+  }
+  .badge-loss {
+    @apply bg-loss-muted text-loss rounded-md px-2 py-0.5 text-xs font-medium;
+  }
+  .badge-warning {
+    @apply bg-warning-muted text-warning rounded-md px-2 py-0.5 text-xs font-medium;
+  }
+  .badge-primary {
+    @apply bg-primary/10 text-primary rounded-md px-2 py-0.5 text-xs font-medium;
+  }
+  .input-field {
+    @apply w-full rounded-lg border bg-secondary/50 px-3 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary/50 transition-all;
+  }
+  .tab-active {
+    @apply text-primary;
+  }
+  .tab-inactive {
+    @apply text-muted-foreground;
+  }
+  .stat-value {
+    @apply text-2xl font-bold tracking-tight;
+  }
+  .stat-label {
+    @apply text-xs text-muted-foreground uppercase tracking-wider;
+  }
+}
+
+@layer utilities {
+  .animate-stagger-1 { animation-delay: 0.05s; }
+  .animate-stagger-2 { animation-delay: 0.1s; }
+  .animate-stagger-3 { animation-delay: 0.15s; }
+  .animate-stagger-4 { animation-delay: 0.2s; }
+}

@@ -1,0 +1,12 @@
+> 
+  Visit https://vercel.com/oauth/device?user_code=HSPJ-MCGD
+
+Waiting for authentication...
+[2K[1A[2K[G
+  Congratulations! You are now signed in.
+
+  To deploy something, run `vercel`.
+
+  💡 To deploy every commit automatically,
+  connect a Git Repository (vercel.link/git (https://vercel.link/git)).
+> The Vercel plugin installs on your agent harness (cursor) to give your AI agent the ability to manage deployments, environments, and more.
