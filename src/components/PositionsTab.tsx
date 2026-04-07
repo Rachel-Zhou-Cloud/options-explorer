@@ -4,9 +4,10 @@ import { daysUntilExpiry } from '@/lib/calculations'
 import { PositionCard } from '@/components/PositionCard'
 import { AddPositionForm } from '@/components/AddPositionForm'
 import { Button } from '@/components/ui/button'
-import { Plus, Layers, TrendingUp as TrendingUpIcon, BarChart3, RefreshCw } from 'lucide-react'
+import { Plus, Layers, TrendingUp as TrendingUpIcon, BarChart3, RefreshCw, ArrowDownCircle, Upload } from 'lucide-react'
 import { fetchQuotes } from '@/lib/marketData'
 import { showToast } from '@/components/ui/toast'
+import { CsvImport } from '@/components/CsvImport'
 
 interface PositionsTabProps {
   positions: Position[]
@@ -15,10 +16,13 @@ interface PositionsTabProps {
   onUpdate: (id: string, updates: Partial<Position>) => void
   onDelete: (id: string) => void
   apiKey: string
+  prefill?: Partial<Position> | null
+  onClearPrefill?: () => void
 }
 
-export function PositionsTab({ positions, onAdd, onClose, onUpdate, onDelete, apiKey }: PositionsTabProps) {
-  const [showAddForm, setShowAddForm] = useState(false)
+export function PositionsTab({ positions, onAdd, onClose, onUpdate, onDelete, apiKey, prefill, onClearPrefill }: PositionsTabProps) {
+  const [showAddForm, setShowAddForm] = useState(!!prefill)
+  const [showCsvImport, setShowCsvImport] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
 
   // Categorize positions
@@ -38,18 +42,42 @@ export function PositionsTab({ positions, onAdd, onClose, onUpdate, onDelete, ap
       return new Date(a.expirationDate).getTime() - new Date(b.expirationDate).getTime()
     })
 
-  // Also include LEAP calls with <= 90 DTE (they've become short-term)
+  const sellCalls = positions
+    .filter(p => p.type === 'sell_call')
+    .sort((a, b) => {
+      if (!a.expirationDate) return 1
+      if (!b.expirationDate) return -1
+      return new Date(a.expirationDate).getTime() - new Date(b.expirationDate).getTime()
+    })
+
+  // Short-term: LEAP calls with <= 90 DTE
   const shortTermCalls = positions.filter(p => {
     if (p.type !== 'leap_call') return false
     if (!p.expirationDate) return false
     return daysUntilExpiry(p.expirationDate) <= 90
   })
 
+  // Other types: buy_call, buy_put, custom
+  const otherPositions = positions.filter(p =>
+    p.type === 'buy_call' || p.type === 'buy_put' || p.type === 'custom'
+  )
+
   const totalPositions = positions.length
 
   const handleAdd = (pos: Omit<Position, 'id' | 'isClosed'>) => {
     onAdd(pos)
     setShowAddForm(false)
+    onClearPrefill?.()
+  }
+
+  const handleCancel = () => {
+    setShowAddForm(false)
+    onClearPrefill?.()
+  }
+
+  const handleCsvImport = (imported: Omit<Position, 'id' | 'isClosed'>[]) => {
+    imported.forEach(pos => onAdd(pos))
+    setShowCsvImport(false)
   }
 
   const handleRefreshQuotes = async () => {
@@ -98,9 +126,12 @@ export function PositionsTab({ positions, onAdd, onClose, onUpdate, onDelete, ap
           {totalPositions > 0 && (
             <Button size="sm" variant="outline" onClick={handleRefreshQuotes} disabled={refreshing}>
               <RefreshCw className={`h-4 w-4 mr-1 ${refreshing ? 'animate-spin' : ''}`} />
-              {refreshing ? '刷新中' : '刷新行情'}
+              {refreshing ? '刷新中' : '刷新'}
             </Button>
           )}
+          <Button size="sm" variant="outline" onClick={() => setShowCsvImport(!showCsvImport)}>
+            <Upload className="h-4 w-4" />
+          </Button>
           <Button size="sm" onClick={() => setShowAddForm(!showAddForm)}>
             <Plus className="h-4 w-4 mr-1" />
             建仓
@@ -108,9 +139,20 @@ export function PositionsTab({ positions, onAdd, onClose, onUpdate, onDelete, ap
         </div>
       </div>
 
+      {/* CSV Import */}
+      {showCsvImport && (
+        <CsvImport onImport={handleCsvImport} onClose={() => setShowCsvImport(false)} />
+      )}
+
       {/* Add Form */}
       {showAddForm && (
-        <AddPositionForm onAdd={handleAdd} onCancel={() => setShowAddForm(false)} apiKey={apiKey} />
+        <AddPositionForm
+          onAdd={handleAdd}
+          onCancel={handleCancel}
+          apiKey={apiKey}
+          positions={positions}
+          prefill={prefill}
+        />
       )}
 
       {/* Empty state */}
@@ -133,13 +175,7 @@ export function PositionsTab({ positions, onAdd, onClose, onUpdate, onDelete, ap
           subtitle=">90天长期看涨"
         >
           {leapCalls.map(pos => (
-            <PositionCard
-              key={pos.id}
-              position={pos}
-              onClose={onClose}
-              onUpdate={onUpdate}
-              onDelete={onDelete}
-            />
+            <PositionCard key={pos.id} position={pos} onClose={onClose} onUpdate={onUpdate} onDelete={onDelete} />
           ))}
         </Section>
       )}
@@ -153,13 +189,7 @@ export function PositionsTab({ positions, onAdd, onClose, onUpdate, onDelete, ap
           subtitle="原LEAP已<90天"
         >
           {shortTermCalls.map(pos => (
-            <PositionCard
-              key={pos.id}
-              position={pos}
-              onClose={onClose}
-              onUpdate={onUpdate}
-              onDelete={onDelete}
-            />
+            <PositionCard key={pos.id} position={pos} onClose={onClose} onUpdate={onUpdate} onDelete={onDelete} />
           ))}
         </Section>
       )}
@@ -173,13 +203,21 @@ export function PositionsTab({ positions, onAdd, onClose, onUpdate, onDelete, ap
           subtitle="股票持仓"
         >
           {stocks.map(pos => (
-            <PositionCard
-              key={pos.id}
-              position={pos}
-              onClose={onClose}
-              onUpdate={onUpdate}
-              onDelete={onDelete}
-            />
+            <PositionCard key={pos.id} position={pos} onClose={onClose} onUpdate={onUpdate} onDelete={onDelete} />
+          ))}
+        </Section>
+      )}
+
+      {/* Sell Calls Section */}
+      {sellCalls.length > 0 && (
+        <Section
+          icon={<ArrowDownCircle className="h-4 w-4 text-warning" />}
+          title="Sell Call"
+          count={sellCalls.length}
+          subtitle="按到期日排序"
+        >
+          {sellCalls.map(pos => (
+            <PositionCard key={pos.id} position={pos} onClose={onClose} onUpdate={onUpdate} onDelete={onDelete} />
           ))}
         </Section>
       )}
@@ -193,13 +231,21 @@ export function PositionsTab({ positions, onAdd, onClose, onUpdate, onDelete, ap
           subtitle="按到期日排序"
         >
           {sellPuts.map(pos => (
-            <PositionCard
-              key={pos.id}
-              position={pos}
-              onClose={onClose}
-              onUpdate={onUpdate}
-              onDelete={onDelete}
-            />
+            <PositionCard key={pos.id} position={pos} onClose={onClose} onUpdate={onUpdate} onDelete={onDelete} />
+          ))}
+        </Section>
+      )}
+
+      {/* Other positions */}
+      {otherPositions.length > 0 && (
+        <Section
+          icon={<Layers className="h-4 w-4 text-muted-foreground" />}
+          title="其他策略"
+          count={otherPositions.length}
+          subtitle="Buy/Custom"
+        >
+          {otherPositions.map(pos => (
+            <PositionCard key={pos.id} position={pos} onClose={onClose} onUpdate={onUpdate} onDelete={onDelete} />
           ))}
         </Section>
       )}
@@ -221,14 +267,14 @@ function Section({
   children: React.ReactNode
 }) {
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex flex-col gap-1.5">
       <div className="flex items-center gap-2 px-1">
         {icon}
         <span className="text-sm font-medium text-foreground">{title}</span>
         <span className="text-xs text-muted-foreground">({count})</span>
         <span className="text-[10px] text-muted-foreground ml-auto">{subtitle}</span>
       </div>
-      <div className="flex flex-col gap-2">
+      <div className="flex flex-col gap-1.5">
         {children}
       </div>
     </div>

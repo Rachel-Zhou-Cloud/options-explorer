@@ -10,20 +10,42 @@ interface AddPositionFormProps {
   onAdd: (pos: Omit<Position, 'id' | 'isClosed'>) => void
   onCancel: () => void
   apiKey: string
+  positions: Position[]
+  prefill?: Partial<Position> | null
 }
 
-export function AddPositionForm({ onAdd, onCancel, apiKey }: AddPositionFormProps) {
-  const [type, setType] = useState<PositionType>('sell_put')
-  const [ticker, setTicker] = useState('')
-  const [strikePrice, setStrikePrice] = useState('')
-  const [currentPrice, setCurrentPrice] = useState('')
-  const [quantity, setQuantity] = useState('1')
-  const [premium, setPremium] = useState('')
+const TYPE_CONFIG: { type: PositionType; label: string; short: string }[] = [
+  { type: 'sell_put', label: 'Sell Put', short: 'SP' },
+  { type: 'sell_call', label: 'Sell Call', short: 'SC' },
+  { type: 'leap_call', label: 'LEAP Call', short: 'LC' },
+  { type: 'stock', label: 'Stock', short: 'STK' },
+  { type: 'buy_call', label: 'Buy Call', short: 'BC' },
+  { type: 'buy_put', label: 'Buy Put', short: 'BP' },
+  { type: 'custom', label: '其他', short: '...' },
+]
+
+const isSellType = (t: PositionType) => t === 'sell_put' || t === 'sell_call'
+const isOptionType = (t: PositionType) => t !== 'stock'
+
+export function AddPositionForm({ onAdd, onCancel, apiKey, positions, prefill }: AddPositionFormProps) {
+  const [type, setType] = useState<PositionType>(prefill?.type || 'sell_put')
+  const [ticker, setTicker] = useState(prefill?.ticker || '')
+  const [strikePrice, setStrikePrice] = useState(prefill?.strikePrice?.toString() || '')
+  const [currentPrice, setCurrentPrice] = useState(prefill?.currentPrice?.toString() || '')
+  const [quantity, setQuantity] = useState(prefill?.quantity?.toString() || '1')
+  const [premium, setPremium] = useState(prefill?.premium?.toString() || '')
   const [costBasis, setCostBasis] = useState('')
-  const [expirationDate, setExpirationDate] = useState('')
+  const [expirationDate, setExpirationDate] = useState(prefill?.expirationDate || '')
   const [currentPremium, setCurrentPremium] = useState('')
   const [notes, setNotes] = useState('')
+  const [customTypeName, setCustomTypeName] = useState('')
+  const [linkedPositionId, setLinkedPositionId] = useState('')
   const [fetching, setFetching] = useState(false)
+
+  // Positions that can be linked (LEAP calls and stocks for sell_call)
+  const linkablePositions = positions.filter(
+    p => (p.type === 'leap_call' || p.type === 'stock') && p.ticker.toUpperCase() === ticker.toUpperCase()
+  )
 
   const handleFetchPrice = async () => {
     if (!ticker.trim()) {
@@ -55,6 +77,10 @@ export function AddPositionForm({ onAdd, onCancel, apiKey }: AddPositionFormProp
       showToast('请输入股票代码', 'error')
       return
     }
+    if (type === 'custom' && !customTypeName.trim()) {
+      showToast('请输入策略名称', 'error')
+      return
+    }
 
     const pos: Omit<Position, 'id' | 'isClosed'> = {
       type,
@@ -68,16 +94,12 @@ export function AddPositionForm({ onAdd, onCancel, apiKey }: AddPositionFormProp
       openDate: new Date().toISOString(),
       currentPremium: parseFloat(currentPremium) || undefined,
       notes: notes || undefined,
+      linkedPositionId: linkedPositionId || undefined,
+      customTypeName: type === 'custom' ? customTypeName.trim() : undefined,
     }
 
     onAdd(pos)
     showToast(`${ticker.toUpperCase()} 建仓成功`, 'success')
-  }
-
-  const typeLabels: Record<PositionType, string> = {
-    sell_put: 'Sell Put',
-    leap_call: 'LEAP Call',
-    stock: '正股 Stock',
   }
 
   return (
@@ -89,23 +111,38 @@ export function AddPositionForm({ onAdd, onCancel, apiKey }: AddPositionFormProp
         </button>
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
-        {/* Type selector */}
-        <div className="flex gap-2">
-          {(Object.keys(typeLabels) as PositionType[]).map(t => (
+        {/* Type selector - two rows */}
+        <div className="grid grid-cols-4 gap-1.5">
+          {TYPE_CONFIG.map(({ type: t, label, short }) => (
             <button
               key={t}
-              className={`flex-1 rounded-lg px-3 py-2 text-xs font-medium transition-all ${
+              className={`rounded-lg px-2 py-1.5 text-[11px] font-medium transition-all ${
                 type === t
                   ? 'bg-primary text-primary-foreground'
                   : 'bg-secondary text-secondary-foreground'
               }`}
               onClick={() => setType(t)}
             >
-              {typeLabels[t]}
+              <span className="hidden sm:inline">{label}</span>
+              <span className="sm:hidden">{short}</span>
             </button>
           ))}
         </div>
 
+        {/* Custom type name */}
+        {type === 'custom' && (
+          <div>
+            <label className="text-xs text-muted-foreground mb-1 block">策略名称</label>
+            <input
+              className="input-field"
+              placeholder="如 Bull Call Spread"
+              value={customTypeName}
+              onChange={e => setCustomTypeName(e.target.value)}
+            />
+          </div>
+        )}
+
+        {/* Ticker + quantity */}
         <div className="grid grid-cols-2 gap-3">
           <div className="col-span-2">
             <label className="text-xs text-muted-foreground mb-1 block">股票代码</label>
@@ -139,7 +176,8 @@ export function AddPositionForm({ onAdd, onCancel, apiKey }: AddPositionFormProp
           </div>
         </div>
 
-        {type !== 'stock' && (
+        {/* Strike + premium (options only) */}
+        {isOptionType(type) && (
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="text-xs text-muted-foreground mb-1 block">行权价</label>
@@ -154,7 +192,7 @@ export function AddPositionForm({ onAdd, onCancel, apiKey }: AddPositionFormProp
             </div>
             <div>
               <label className="text-xs text-muted-foreground mb-1 block">
-                {type === 'sell_put' ? '收取权利金' : '支付权利金'} / 股
+                {isSellType(type) ? '收取权利金' : '支付权利金'} / 股
               </label>
               <input
                 type="number"
@@ -168,6 +206,7 @@ export function AddPositionForm({ onAdd, onCancel, apiKey }: AddPositionFormProp
           </div>
         )}
 
+        {/* Cost basis (stock only) */}
         {type === 'stock' && (
           <div>
             <label className="text-xs text-muted-foreground mb-1 block">成本价</label>
@@ -182,6 +221,7 @@ export function AddPositionForm({ onAdd, onCancel, apiKey }: AddPositionFormProp
           </div>
         )}
 
+        {/* Current price + expiry */}
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className="text-xs text-muted-foreground mb-1 block">标的现价</label>
@@ -194,7 +234,7 @@ export function AddPositionForm({ onAdd, onCancel, apiKey }: AddPositionFormProp
               inputMode="decimal"
             />
           </div>
-          {type !== 'stock' && (
+          {isOptionType(type) && (
             <div>
               <label className="text-xs text-muted-foreground mb-1 block">到期日</label>
               <input
@@ -207,7 +247,8 @@ export function AddPositionForm({ onAdd, onCancel, apiKey }: AddPositionFormProp
           )}
         </div>
 
-        {type !== 'stock' && (
+        {/* Current premium (options only) */}
+        {isOptionType(type) && (
           <div>
             <label className="text-xs text-muted-foreground mb-1 block">当前权利金 / 股</label>
             <input
@@ -221,6 +262,29 @@ export function AddPositionForm({ onAdd, onCancel, apiKey }: AddPositionFormProp
           </div>
         )}
 
+        {/* Linked position (for sell_call) */}
+        {type === 'sell_call' && (
+          <div>
+            <label className="text-xs text-muted-foreground mb-1 block">关联持仓 (用于摊薄成本)</label>
+            <select
+              className="input-field"
+              value={linkedPositionId}
+              onChange={e => setLinkedPositionId(e.target.value)}
+            >
+              <option value="">不关联</option>
+              {linkablePositions.map(p => (
+                <option key={p.id} value={p.id}>
+                  {p.type === 'leap_call' ? 'LC' : 'STK'} {p.ticker} ${p.strikePrice} ×{p.quantity}
+                </option>
+              ))}
+              {ticker && linkablePositions.length === 0 && (
+                <option disabled>无匹配的 {ticker.toUpperCase()} LEAP/正股持仓</option>
+              )}
+            </select>
+          </div>
+        )}
+
+        {/* Notes */}
         <div>
           <label className="text-xs text-muted-foreground mb-1 block">备注</label>
           <input

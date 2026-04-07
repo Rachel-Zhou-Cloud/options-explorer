@@ -5,6 +5,7 @@ import { PerformanceTab } from '@/components/PerformanceTab'
 import { CostAnalysisTab } from '@/components/CostAnalysisTab'
 import { ToastContainer } from '@/components/ui/toast'
 import { useStore } from '@/store/useStore'
+import type { Position } from '@/types'
 import { Calculator, Layers, Trophy, PiggyBank, Settings, X } from 'lucide-react'
 
 type TabId = 'calculator' | 'positions' | 'cost' | 'performance'
@@ -20,6 +21,7 @@ function App() {
   const [activeTab, setActiveTab] = useState<TabId>('calculator')
   const [showSettings, setShowSettings] = useState(false)
   const [apiKeyInput, setApiKeyInput] = useState('')
+  const [prefillPosition, setPrefillPosition] = useState<Partial<Position> | null>(null)
   const store = useStore()
 
   const openSettings = () => {
@@ -30,6 +32,11 @@ function App() {
   const saveApiKey = () => {
     store.setApiKey(apiKeyInput.trim())
     setShowSettings(false)
+  }
+
+  const handleCreateFromCalculator = (prefill: Partial<Position>) => {
+    setPrefillPosition(prefill)
+    setActiveTab('positions')
   }
 
   return (
@@ -84,7 +91,9 @@ function App() {
 
       {/* Content */}
       <main className="flex-1 overflow-y-auto px-4 pt-4 pb-20">
-        {activeTab === 'calculator' && <CalculatorTab apiKey={store.apiKey} />}
+        {activeTab === 'calculator' && (
+          <CalculatorTab apiKey={store.apiKey} onCreatePosition={handleCreateFromCalculator} />
+        )}
         {activeTab === 'positions' && (
           <PositionsTab
             positions={store.positions}
@@ -93,6 +102,8 @@ function App() {
             onUpdate={store.updatePosition}
             onDelete={store.deletePosition}
             apiKey={store.apiKey}
+            prefill={prefillPosition}
+            onClearPrefill={() => setPrefillPosition(null)}
           />
         )}
         {activeTab === 'cost' && (

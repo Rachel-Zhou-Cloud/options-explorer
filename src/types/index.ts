@@ -1,4 +1,4 @@
-export type PositionType = 'leap_call' | 'stock' | 'sell_put'
+export type PositionType = 'sell_put' | 'sell_call' | 'leap_call' | 'buy_call' | 'buy_put' | 'stock' | 'custom'
 
 export interface Position {
   id: string
@@ -10,7 +10,7 @@ export interface Position {
   currentPrice: number
   /** Number of contracts or shares */
   quantity: number
-  /** Premium received (sell put) or paid (leap call), per share */
+  /** Premium received (sell) or paid (buy), per share */
   premium: number
   /** Cost basis per share (for stocks) */
   costBasis?: number
@@ -28,6 +28,10 @@ export interface Position {
   closeDate?: string
   /** Close premium (for options) or close price (for stocks) */
   closePremium?: number
+  /** Linked parent position ID (e.g. sell_call linked to a LEAP/stock) */
+  linkedPositionId?: string
+  /** Custom type name when type is 'custom' */
+  customTypeName?: string
 }
 
 export interface ClosedTrade {

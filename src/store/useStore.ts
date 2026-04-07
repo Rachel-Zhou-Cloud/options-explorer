@@ -65,13 +65,14 @@ export function useStore() {
       let pnl: number
       let pnlPercent: number
 
-      if (pos.type === 'sell_put') {
+      if (pos.type === 'sell_put' || pos.type === 'sell_call') {
         pnl = (pos.premium - closePremium) * pos.quantity * 100
         pnlPercent = pos.premium > 0 ? ((pos.premium - closePremium) / pos.premium) * 100 : 0
       } else if (pos.type === 'stock') {
         pnl = (closePremium - (pos.costBasis || pos.strikePrice)) * pos.quantity
         pnlPercent = pos.costBasis ? ((closePremium - pos.costBasis) / pos.costBasis) * 100 : 0
       } else {
+        // buy_call, buy_put, leap_call, custom
         pnl = (closePremium - pos.premium) * pos.quantity * 100
         pnlPercent = pos.premium > 0 ? ((closePremium - pos.premium) / pos.premium) * 100 : 0
       }
@@ -93,6 +94,20 @@ export function useStore() {
       }
 
       setClosedTrades(prevTrades => [...prevTrades, trade])
+
+      // Auto-create cost record when closing a sell_call linked to a parent position
+      if (pos.type === 'sell_call' && pos.linkedPositionId && pnl > 0) {
+        const costRecord: CostRecord = {
+          id: generateId(),
+          parentPositionId: pos.linkedPositionId,
+          description: `Sell ${pos.ticker} ${pos.strikePrice}C ${pos.expirationDate ? new Date(pos.expirationDate).toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' }) : ''}`,
+          premiumCollected: pos.premium - closePremium,
+          quantity: pos.quantity,
+          date: closeDate,
+          source: 'sell_call',
+        }
+        setCostRecords(prevRecords => [...prevRecords, costRecord])
+      }
 
       return prev.filter(p => p.id !== id)
     })

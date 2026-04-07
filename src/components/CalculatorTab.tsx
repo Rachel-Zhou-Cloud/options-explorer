@@ -2,16 +2,17 @@ import { useState } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { calculateAnnualizedReturn, formatPercent, formatCurrency } from '@/lib/calculations'
-import type { CalculatorResult } from '@/types'
-import { Calculator, TrendingUp, Shield, Info, Search } from 'lucide-react'
+import type { CalculatorResult, Position } from '@/types'
+import { Calculator, TrendingUp, Shield, Info, Search, PlusCircle } from 'lucide-react'
 import { fetchSingleQuote } from '@/lib/marketData'
 import { showToast } from '@/components/ui/toast'
 
 interface CalculatorTabProps {
   apiKey: string
+  onCreatePosition?: (prefill: Partial<Position>) => void
 }
 
-export function CalculatorTab({ apiKey }: CalculatorTabProps) {
+export function CalculatorTab({ apiKey, onCreatePosition }: CalculatorTabProps) {
   const [ticker, setTicker] = useState('')
   const [strikePrice, setStrikePrice] = useState('')
   const [underlyingPrice, setUnderlyingPrice] = useState('')
@@ -260,6 +261,31 @@ export function CalculatorTab({ apiKey }: CalculatorTabProps) {
                 <p className="mt-1">最低每股 $2.50</p>
               </CardContent>
             </Card>
+          )}
+
+          {/* Create position from calculator */}
+          {onCreatePosition && (
+            <Button
+              variant="outline"
+              className="w-full border-profit/30 text-profit hover:bg-profit/10"
+              onClick={() => {
+                const d = parseInt(daysToExpiry)
+                const expDate = !isNaN(d) && d > 0
+                  ? new Date(Date.now() + d * 86400000).toISOString().slice(0, 10)
+                  : undefined
+                onCreatePosition({
+                  type: 'sell_put',
+                  ticker: ticker.toUpperCase() || undefined,
+                  strikePrice: parseFloat(strikePrice) || 0,
+                  currentPrice: parseFloat(underlyingPrice) || 0,
+                  premium: parseFloat(premium) || 0,
+                  expirationDate: expDate,
+                })
+              }}
+            >
+              <PlusCircle className="h-4 w-4 mr-1.5" />
+              确认建仓 Sell Put
+            </Button>
           )}
         </div>
       )}
