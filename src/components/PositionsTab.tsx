@@ -12,7 +12,7 @@ import { CsvImport } from '@/components/CsvImport'
 interface PositionsTabProps {
   positions: Position[]
   onAdd: (pos: Omit<Position, 'id' | 'isClosed'>) => void
-  onClose: (id: string, closePremium: number) => void
+  onClose: (id: string, closePremium: number, closeQty?: number) => void
   onUpdate: (id: string, updates: Partial<Position>) => void
   onDelete: (id: string) => void
   apiKey: string

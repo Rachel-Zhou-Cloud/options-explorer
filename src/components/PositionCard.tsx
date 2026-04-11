@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import type { Position } from '@/types'
+import type { Position, PositionType } from '@/types'
 import {
   daysUntilExpiry,
   expiresWithinDays,
@@ -9,24 +9,21 @@ import {
   calculateProfitPercent,
   formatCurrency,
   formatDate,
+  estimateGreeks,
+  type OptionSide,
 } from '@/lib/calculations'
-import { AlertTriangle, TrendingUp, Target, Clock, X, ChevronDown, ChevronUp } from 'lucide-react'
+import { AlertTriangle, TrendingUp, Target, Clock, X, ChevronDown, ChevronUp, Pencil } from 'lucide-react'
 
 interface PositionCardProps {
   position: Position
-  onClose: (id: string, closePremium: number) => void
+  onClose: (id: string, closePremium: number, closeQty?: number) => void
   onUpdate: (id: string, updates: Partial<Position>) => void
   onDelete: (id: string) => void
 }
 
 const TYPE_LABELS: Record<string, string> = {
-  sell_put: 'SP',
-  sell_call: 'SC',
-  leap_call: 'LC',
-  buy_call: 'BC',
-  buy_put: 'BP',
-  stock: 'STK',
-  custom: 'OTH',
+  sell_put: 'SP', sell_call: 'SC', leap_call: 'LC',
+  buy_call: 'BC', buy_put: 'BP', stock: 'STK', custom: 'OTH',
 }
 
 const TYPE_COLORS: Record<string, string> = {
@@ -54,7 +51,6 @@ function calcUnrealizedPnl(pos: Position): { pnl: number; pnlPercent: number } |
     const pnlPercent = pos.premium > 0 ? (profitPerShare / pos.premium) * 100 : 0
     return { pnl, pnlPercent }
   }
-  // buy_call, buy_put, leap_call, custom (buy side)
   if (pos.currentPremium === undefined) return null
   const profitPerShare = pos.currentPremium - pos.premium
   const pnl = profitPerShare * pos.quantity * 100
@@ -62,113 +58,143 @@ function calcUnrealizedPnl(pos: Position): { pnl: number; pnlPercent: number } |
   return { pnl, pnlPercent }
 }
 
+const isSellType = (t: PositionType) => t === 'sell_put' || t === 'sell_call'
+const isOptionType = (t: PositionType) => t !== 'stock'
+
 export function PositionCard({ position, onClose, onUpdate, onDelete }: PositionCardProps) {
   const [expanded, setExpanded] = useState(false)
   const [showCloseForm, setShowCloseForm] = useState(false)
   const [closePremium, setClosePremium] = useState('')
-  const [isEditing, setIsEditing] = useState(false)
+  const [closeQty, setCloseQty] = useState(position.quantity.toString())
+  // Quick edit: price + premium only
+  const [isQuickEdit, setIsQuickEdit] = useState(false)
   const [editCurrentPrice, setEditCurrentPrice] = useState(position.currentPrice.toString())
-  const [editCurrentPremium, setEditCurrentPremium] = useState(
-    position.currentPremium?.toString() || ''
-  )
+  const [editCurrentPremium, setEditCurrentPremium] = useState(position.currentPremium?.toString() || '')
+  // Full edit: all fields
+  const [isFullEdit, setIsFullEdit] = useState(false)
+  const [editQty, setEditQty] = useState(position.quantity.toString())
+  const [editStrike, setEditStrike] = useState(position.strikePrice.toString())
+  const [editPremium, setEditPremium] = useState(position.premium.toString())
+  const [editCostBasis, setEditCostBasis] = useState(position.costBasis?.toString() || '')
+  const [editExpDate, setEditExpDate] = useState(position.expirationDate || '')
+  const [editNotes, setEditNotes] = useState(position.notes || '')
 
   const dte = position.expirationDate ? daysUntilExpiry(position.expirationDate) : null
   const expiringThisWeek = position.expirationDate ? expiresWithinDays(position.expirationDate, 7) : false
-  const nearStrike = (position.type === 'sell_put' || position.type === 'sell_call') && isNearStrike(position.currentPrice, position.strikePrice, 5)
+  const nearStrike = isSellType(position.type) && isNearStrike(position.currentPrice, position.strikePrice, 5)
 
-  const sellProfitPercent = (position.type === 'sell_put' || position.type === 'sell_call') && position.currentPremium !== undefined
+  const sellProfitPercent = isSellType(position.type) && position.currentPremium !== undefined
     ? calculateProfitPercent(position.premium, position.currentPremium)
     : null
   const profitOver70 = sellProfitPercent !== null && sellProfitPercent >= 70
 
   const unrealized = calcUnrealizedPnl(position)
 
-  // Alert badges
-  const alerts: { icon: typeof AlertTriangle; label: string; className: string }[] = []
-  if (expiringThisWeek) {
-    alerts.push({ icon: Clock, label: `${dte}d`, className: 'badge-warning' })
-  }
-  if (profitOver70) {
-    alerts.push({ icon: TrendingUp, label: `${sellProfitPercent?.toFixed(0)}%`, className: 'badge-profit' })
-  }
-  if (nearStrike) {
-    alerts.push({ icon: Target, label: '近行权价', className: 'badge-loss' })
-  }
+  // Greeks estimation for options
+  const greeks = isOptionType(position.type) && dte !== null && dte > 0 && position.currentPremium !== undefined
+    ? estimateGreeks(
+        (position.type === 'sell_put' || position.type === 'buy_put') ? 'put' as OptionSide : 'call' as OptionSide,
+        position.currentPrice,
+        position.strikePrice,
+        dte,
+        position.currentPremium,
+      )
+    : null
 
-  const borderClass = expiringThisWeek
-    ? 'border-warning/40'
-    : profitOver70
-    ? 'border-profit/40'
-    : nearStrike
-    ? 'border-loss/40'
-    : ''
+  const alerts: { icon: typeof AlertTriangle; label: string; className: string }[] = []
+  if (expiringThisWeek) alerts.push({ icon: Clock, label: `${dte}d`, className: 'badge-warning' })
+  if (profitOver70) alerts.push({ icon: TrendingUp, label: `${sellProfitPercent?.toFixed(0)}%`, className: 'badge-profit' })
+  if (nearStrike) alerts.push({ icon: Target, label: '近行权价', className: 'badge-loss' })
+
+  const borderClass = expiringThisWeek ? 'border-warning/40'
+    : profitOver70 ? 'border-profit/40'
+    : nearStrike ? 'border-loss/40' : ''
 
   const handleClose = () => {
     const cp = parseFloat(closePremium)
     if (isNaN(cp)) return
-    onClose(position.id, cp)
+    const qty = parseInt(closeQty)
+    onClose(position.id, cp, qty > 0 && qty < position.quantity ? qty : undefined)
     setShowCloseForm(false)
   }
 
-  const handleSaveEdit = () => {
+  const handleQuickSave = () => {
     onUpdate(position.id, {
       currentPrice: parseFloat(editCurrentPrice) || position.currentPrice,
       currentPremium: editCurrentPremium ? parseFloat(editCurrentPremium) : undefined,
     })
-    setIsEditing(false)
+    setIsQuickEdit(false)
   }
 
-  const typeLabel = position.type === 'custom'
-    ? (position.customTypeName || 'OTH')
-    : TYPE_LABELS[position.type]
+  const handleFullSave = () => {
+    const updates: Partial<Position> = {
+      quantity: parseInt(editQty) || position.quantity,
+      strikePrice: parseFloat(editStrike) || position.strikePrice,
+      premium: parseFloat(editPremium) || position.premium,
+      expirationDate: editExpDate || undefined,
+      notes: editNotes || undefined,
+      currentPrice: parseFloat(editCurrentPrice) || position.currentPrice,
+      currentPremium: editCurrentPremium ? parseFloat(editCurrentPremium) : undefined,
+    }
+    if (position.type === 'stock') {
+      updates.costBasis = parseFloat(editCostBasis) || position.costBasis
+    }
+    onUpdate(position.id, updates)
+    setIsFullEdit(false)
+  }
+
+  const startFullEdit = () => {
+    setEditQty(position.quantity.toString())
+    setEditStrike(position.strikePrice.toString())
+    setEditPremium(position.premium.toString())
+    setEditCostBasis(position.costBasis?.toString() || '')
+    setEditExpDate(position.expirationDate || '')
+    setEditNotes(position.notes || '')
+    setEditCurrentPrice(position.currentPrice.toString())
+    setEditCurrentPremium(position.currentPremium?.toString() || '')
+    setIsFullEdit(true)
+    setIsQuickEdit(false)
+  }
+
+  const isEditing = isQuickEdit || isFullEdit
+
+  const typeLabel = position.type === 'custom' ? (position.customTypeName || 'OTH') : TYPE_LABELS[position.type]
   const typeColor = TYPE_COLORS[position.type] || TYPE_COLORS.custom
 
   return (
     <Card className={`transition-all duration-200 ${borderClass}`}>
       <CardContent className="p-0">
-        {/* Compact row - always visible */}
-        <button
-          className="w-full flex items-center gap-2 px-3 py-2.5 text-left"
-          onClick={() => setExpanded(!expanded)}
-        >
-          <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold shrink-0 ${typeColor}`}>
-            {typeLabel}
-          </span>
+        {/* Compact row */}
+        <button className="w-full flex items-center gap-2 px-3 py-2.5 text-left" onClick={() => setExpanded(!expanded)}>
+          <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold shrink-0 ${typeColor}`}>{typeLabel}</span>
           <span className="font-semibold text-sm text-foreground shrink-0">{position.ticker}</span>
-          {position.type !== 'stock' && (
-            <span className="text-xs text-muted-foreground">${position.strikePrice}</span>
-          )}
+          {isOptionType(position.type) && <span className="text-xs text-muted-foreground">${position.strikePrice}</span>}
           {dte !== null && (
-            <span className={`text-[10px] ${expiringThisWeek ? 'text-warning font-bold' : 'text-muted-foreground'}`}>
-              {dte}d
-            </span>
+            <span className={`text-[10px] ${expiringThisWeek ? 'text-warning font-bold' : 'text-muted-foreground'}`}>{dte}d</span>
           )}
-
-          {/* Alert badges inline */}
           {alerts.map((alert, i) => (
             <span key={i} className={`${alert.className} flex items-center gap-0.5 text-[10px] py-0 px-1.5`}>
-              <alert.icon className="h-2.5 w-2.5" />
-              {alert.label}
+              <alert.icon className="h-2.5 w-2.5" />{alert.label}
             </span>
           ))}
-
           <span className="ml-auto flex items-center gap-2 shrink-0">
-            {/* P&L display */}
             {unrealized && (
               <span className={`text-xs font-semibold ${unrealized.pnl >= 0 ? 'text-profit' : 'text-loss'}`}>
                 {unrealized.pnl >= 0 ? '+' : ''}{unrealized.pnlPercent.toFixed(1)}%
               </span>
             )}
+            <span className="text-[10px] text-muted-foreground">×{position.quantity}</span>
             {expanded ? <ChevronUp className="h-3.5 w-3.5 text-muted-foreground" /> : <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />}
           </span>
         </button>
 
-        {/* Expanded details */}
+        {/* Expanded */}
         {expanded && (
           <div className="px-3 pb-3 animate-fade-in">
             <div className="border-t pt-2.5">
+              {/* Detail rows */}
               <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
-                {position.type !== 'stock' && (
+                {isOptionType(position.type) && (
                   <>
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">权利金</span>
@@ -194,18 +220,16 @@ export function PositionCard({ position, onClose, onUpdate, onDelete }: Position
                     </div>
                   </>
                 )}
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">数量</span>
-                  <span className="text-foreground">×{position.quantity}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">标的</span>
-                  <span className="text-foreground">{formatCurrency(position.currentPrice)}</span>
-                </div>
+                {isOptionType(position.type) && (
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">标的</span>
+                    <span className="text-foreground">{formatCurrency(position.currentPrice)}</span>
+                  </div>
+                )}
                 {position.expirationDate && (
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">到期</span>
-                    <span className={`${expiringThisWeek ? 'text-warning font-medium' : 'text-foreground'}`}>
+                    <span className={expiringThisWeek ? 'text-warning font-medium' : 'text-foreground'}>
                       {formatDate(position.expirationDate)}
                     </span>
                   </div>
@@ -226,60 +250,159 @@ export function PositionCard({ position, onClose, onUpdate, onDelete }: Position
                 )}
               </div>
 
-              {position.notes && (
-                <div className="mt-2 text-xs text-muted-foreground italic">{position.notes}</div>
-              )}
+              {position.notes && <div className="mt-2 text-xs text-muted-foreground italic">{position.notes}</div>}
 
-              {/* Edit mode */}
-              {isEditing && (
-                <div className="mt-3 pt-3 border-t flex flex-col gap-2 animate-fade-in">
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <label className="text-[10px] text-muted-foreground">标的现价</label>
-                      <input
-                        type="number"
-                        className="input-field text-xs py-1.5"
-                        value={editCurrentPrice}
-                        onChange={e => setEditCurrentPrice(e.target.value)}
-                        inputMode="decimal"
-                      />
+              {/* Greeks & Moneyness */}
+              {greeks && (
+                <div className="mt-2.5 pt-2 border-t border-dashed">
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Moneyness</span>
+                      <span className={`font-medium ${
+                        greeks.moneyness === 'ITM' ? 'text-profit' :
+                        greeks.moneyness === 'OTM' ? 'text-loss' : 'text-warning'
+                      }`}>
+                        {greeks.moneyness} ({greeks.moneynessPercent >= 0 ? '+' : ''}{greeks.moneynessPercent.toFixed(1)}%)
+                      </span>
                     </div>
-                    {position.type !== 'stock' && (
-                      <div>
-                        <label className="text-[10px] text-muted-foreground">当前权利金</label>
-                        <input
-                          type="number"
-                          className="input-field text-xs py-1.5"
-                          value={editCurrentPremium}
-                          onChange={e => setEditCurrentPremium(e.target.value)}
-                          inputMode="decimal"
-                        />
-                      </div>
-                    )}
-                  </div>
-                  <div className="flex gap-2">
-                    <Button size="sm" onClick={handleSaveEdit} className="flex-1">保存</Button>
-                    <Button size="sm" variant="outline" onClick={() => setIsEditing(false)}>取消</Button>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Delta</span>
+                      <span className="text-foreground">{greeks.delta.toFixed(3)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Theta/日</span>
+                      <span className={greeks.theta < 0 ? 'text-loss' : 'text-profit'}>
+                        {greeks.theta >= 0 ? '+' : ''}{formatCurrency(greeks.theta)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">隐含波动</span>
+                      <span className="text-foreground">${greeks.impliedMove.toFixed(1)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">内在价值</span>
+                      <span className="text-foreground">{formatCurrency(greeks.intrinsicValue)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">时间价值</span>
+                      <span className="text-foreground">{formatCurrency(greeks.timeValue)}</span>
+                    </div>
                   </div>
                 </div>
               )}
 
-              {/* Close form */}
+              {/* Quick edit: price + premium */}
+              {isQuickEdit && (
+                <div className="mt-3 pt-3 border-t flex flex-col gap-2 animate-fade-in">
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-[10px] text-muted-foreground">标的现价</label>
+                      <input type="number" className="input-field text-xs py-1.5" value={editCurrentPrice}
+                        onChange={e => setEditCurrentPrice(e.target.value)} inputMode="decimal" />
+                    </div>
+                    {isOptionType(position.type) && (
+                      <div>
+                        <label className="text-[10px] text-muted-foreground">当前权利金</label>
+                        <input type="number" className="input-field text-xs py-1.5" value={editCurrentPremium}
+                          onChange={e => setEditCurrentPremium(e.target.value)} inputMode="decimal" />
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex gap-2">
+                    <Button size="sm" onClick={handleQuickSave} className="flex-1">保存</Button>
+                    <Button size="sm" variant="ghost" className="text-xs text-muted-foreground" onClick={startFullEdit}>
+                      <Pencil className="h-3 w-3 mr-1" />编辑全部
+                    </Button>
+                    <Button size="sm" variant="outline" onClick={() => setIsQuickEdit(false)}>取消</Button>
+                  </div>
+                </div>
+              )}
+
+              {/* Full edit: all fields */}
+              {isFullEdit && (
+                <div className="mt-3 pt-3 border-t flex flex-col gap-2 animate-fade-in">
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-[10px] text-muted-foreground">数量</label>
+                      <input type="number" className="input-field text-xs py-1.5" value={editQty}
+                        onChange={e => setEditQty(e.target.value)} inputMode="numeric" />
+                    </div>
+                    {isOptionType(position.type) ? (
+                      <div>
+                        <label className="text-[10px] text-muted-foreground">行权价</label>
+                        <input type="number" className="input-field text-xs py-1.5" value={editStrike}
+                          onChange={e => setEditStrike(e.target.value)} inputMode="decimal" />
+                      </div>
+                    ) : (
+                      <div>
+                        <label className="text-[10px] text-muted-foreground">成本价</label>
+                        <input type="number" className="input-field text-xs py-1.5" value={editCostBasis}
+                          onChange={e => setEditCostBasis(e.target.value)} inputMode="decimal" />
+                      </div>
+                    )}
+                    {isOptionType(position.type) && (
+                      <div>
+                        <label className="text-[10px] text-muted-foreground">{isSellType(position.type) ? '收取' : '支付'}权利金</label>
+                        <input type="number" className="input-field text-xs py-1.5" value={editPremium}
+                          onChange={e => setEditPremium(e.target.value)} inputMode="decimal" />
+                      </div>
+                    )}
+                    <div>
+                      <label className="text-[10px] text-muted-foreground">标的现价</label>
+                      <input type="number" className="input-field text-xs py-1.5" value={editCurrentPrice}
+                        onChange={e => setEditCurrentPrice(e.target.value)} inputMode="decimal" />
+                    </div>
+                    {isOptionType(position.type) && (
+                      <>
+                        <div>
+                          <label className="text-[10px] text-muted-foreground">当前权利金</label>
+                          <input type="number" className="input-field text-xs py-1.5" value={editCurrentPremium}
+                            onChange={e => setEditCurrentPremium(e.target.value)} inputMode="decimal" />
+                        </div>
+                        <div>
+                          <label className="text-[10px] text-muted-foreground">到期日</label>
+                          <input type="date" className="input-field text-xs py-1.5" value={editExpDate}
+                            onChange={e => setEditExpDate(e.target.value)} />
+                        </div>
+                      </>
+                    )}
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-muted-foreground">备注</label>
+                    <input className="input-field text-xs py-1.5" value={editNotes}
+                      onChange={e => setEditNotes(e.target.value)} placeholder="可选" />
+                  </div>
+                  <div className="flex gap-2">
+                    <Button size="sm" onClick={handleFullSave} className="flex-1">保存全部</Button>
+                    <Button size="sm" variant="outline" onClick={() => setIsFullEdit(false)}>取消</Button>
+                  </div>
+                </div>
+              )}
+
+              {/* Close form with quantity */}
               {showCloseForm && (
                 <div className="mt-3 pt-3 border-t flex flex-col gap-2 animate-fade-in">
-                  <label className="text-xs text-muted-foreground">
-                    {position.type === 'stock' ? '卖出价' : '平仓权利金 / 股'}
-                  </label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-xs text-muted-foreground">
+                        {position.type === 'stock' ? '卖出价' : '平仓权利金/股'}
+                      </label>
+                      <input type="number" className="input-field text-xs py-1.5"
+                        placeholder={isSellType(position.type) ? '到期归零填0' : '平仓价格'}
+                        value={closePremium} onChange={e => setClosePremium(e.target.value)} inputMode="decimal" />
+                    </div>
+                    <div>
+                      <label className="text-xs text-muted-foreground">
+                        平仓数量 (共{position.quantity})
+                      </label>
+                      <input type="number" className="input-field text-xs py-1.5"
+                        value={closeQty} onChange={e => setCloseQty(e.target.value)} inputMode="numeric" />
+                    </div>
+                  </div>
                   <div className="flex gap-2">
-                    <input
-                      type="number"
-                      className="input-field text-xs py-1.5 flex-1"
-                      placeholder={position.type === 'sell_put' || position.type === 'sell_call' ? '如 0.05 (到期归零填0)' : '平仓价格'}
-                      value={closePremium}
-                      onChange={e => setClosePremium(e.target.value)}
-                      inputMode="decimal"
-                    />
-                    <Button size="sm" variant="profit" onClick={handleClose}>确认</Button>
+                    <Button size="sm" variant="profit" onClick={handleClose} className="flex-1">
+                      {parseInt(closeQty) > 0 && parseInt(closeQty) < position.quantity ? '部分平仓' : '全部平仓'}
+                    </Button>
                     <Button size="sm" variant="outline" onClick={() => setShowCloseForm(false)}>
                       <X className="h-3 w-3" />
                     </Button>
@@ -287,13 +410,15 @@ export function PositionCard({ position, onClose, onUpdate, onDelete }: Position
                 </div>
               )}
 
-              {/* Action buttons */}
+              {/* Actions */}
               {!isEditing && !showCloseForm && (
                 <div className="flex gap-2 mt-3 pt-2.5 border-t">
-                  <Button size="sm" variant="ghost" className="flex-1 text-xs" onClick={() => setIsEditing(true)}>
+                  <Button size="sm" variant="ghost" className="flex-1 text-xs"
+                    onClick={() => { setIsQuickEdit(true); setEditCurrentPrice(position.currentPrice.toString()); setEditCurrentPremium(position.currentPremium?.toString() || '') }}>
                     更新
                   </Button>
-                  <Button size="sm" variant="ghost" className="flex-1 text-xs text-profit" onClick={() => setShowCloseForm(true)}>
+                  <Button size="sm" variant="ghost" className="flex-1 text-xs text-profit"
+                    onClick={() => { setShowCloseForm(true); setCloseQty(position.quantity.toString()) }}>
                     平仓
                   </Button>
                   <Button size="sm" variant="ghost" className="text-xs text-destructive" onClick={() => onDelete(position.id)}>

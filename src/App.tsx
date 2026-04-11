@@ -119,6 +119,7 @@ function App() {
           <PerformanceTab
             closedTrades={store.closedTrades}
             onDeleteTrade={store.deleteTrade}
+            onAddTrade={store.addClosedTrade}
           />
         )}
       </main>

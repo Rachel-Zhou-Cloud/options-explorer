@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import type { ClosedTrade } from '@/types'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -10,14 +11,33 @@ import {
   Trash2,
   Target,
   BarChart3,
+  Upload,
 } from 'lucide-react'
+import { TradeImport } from '@/components/TradeImport'
+
+const TRADE_TYPE_LABELS: Record<string, string> = {
+  sell_put: 'SP', sell_call: 'SC', leap_call: 'LC',
+  buy_call: 'BC', buy_put: 'BP', stock: 'STK', custom: 'OTH',
+}
+
+const TRADE_TYPE_COLORS: Record<string, string> = {
+  sell_put: 'bg-primary/10 text-primary',
+  sell_call: 'bg-warning/10 text-warning',
+  leap_call: 'bg-profit/10 text-profit',
+  buy_call: 'bg-profit/10 text-profit',
+  buy_put: 'bg-loss/10 text-loss',
+  stock: 'bg-secondary text-secondary-foreground',
+  custom: 'bg-secondary text-secondary-foreground',
+}
 
 interface PerformanceTabProps {
   closedTrades: ClosedTrade[]
   onDeleteTrade: (id: string) => void
+  onAddTrade: (trade: Omit<ClosedTrade, 'id'>) => void
 }
 
-export function PerformanceTab({ closedTrades, onDeleteTrade }: PerformanceTabProps) {
+export function PerformanceTab({ closedTrades, onDeleteTrade, onAddTrade }: PerformanceTabProps) {
+  const [showImport, setShowImport] = useState(false)
   const totalTrades = closedTrades.length
   const wins = closedTrades.filter(t => t.isWin).length
   const losses = totalTrades - wins
@@ -78,15 +98,29 @@ export function PerformanceTab({ closedTrades, onDeleteTrade }: PerformanceTabPr
   return (
     <div className="flex flex-col gap-4 pb-4 animate-fade-in">
       {/* Header */}
-      <div className="flex items-center gap-3 px-1">
-        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
-          <Trophy className="h-5 w-5 text-primary" />
+      <div className="flex items-center justify-between px-1">
+        <div className="flex items-center gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
+            <Trophy className="h-5 w-5 text-primary" />
+          </div>
+          <div>
+            <h2 className="text-lg font-semibold text-foreground">投资绩效</h2>
+            <p className="text-xs text-muted-foreground">交易记录与策略分析</p>
+          </div>
         </div>
-        <div>
-          <h2 className="text-lg font-semibold text-foreground">投资绩效</h2>
-          <p className="text-xs text-muted-foreground">交易记录与策略分析</p>
-        </div>
+        <Button size="sm" variant="outline" onClick={() => setShowImport(!showImport)}>
+          <Upload className="h-4 w-4 mr-1" />
+          导入
+        </Button>
       </div>
+
+      {/* Trade Import */}
+      {showImport && (
+        <TradeImport
+          onImport={(trades) => { trades.forEach(t => onAddTrade(t)); setShowImport(false) }}
+          onClose={() => setShowImport(false)}
+        />
+      )}
 
       {/* Empty state */}
       {totalTrades === 0 && (
@@ -190,11 +224,9 @@ export function PerformanceTab({ closedTrades, onDeleteTrade }: PerformanceTabPr
                   <div className="flex items-center justify-between mb-1">
                     <div className="flex items-center gap-2">
                       <span className={`rounded-md px-1.5 py-0.5 text-[10px] font-bold ${
-                        trade.type === 'sell_put' ? 'bg-primary/10 text-primary' :
-                        trade.type === 'leap_call' ? 'bg-profit/10 text-profit' :
-                        'bg-secondary text-secondary-foreground'
+                        TRADE_TYPE_COLORS[trade.type] || TRADE_TYPE_COLORS.custom
                       }`}>
-                        {trade.type === 'sell_put' ? 'SP' : trade.type === 'leap_call' ? 'LC' : 'STK'}
+                        {TRADE_TYPE_LABELS[trade.type] || 'OTH'}
                       </span>
                       <span className="text-sm font-medium text-foreground">{trade.ticker}</span>
                       {trade.type !== 'stock' && (
