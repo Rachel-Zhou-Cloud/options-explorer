@@ -225,6 +225,37 @@ function PositionCostCard({
           />
         </div>
 
+        {/* Suggested CC Strike Prices */}
+        {adjustedCostPerShare > 0 && position.currentPrice > 0 && (
+          <div className="mt-3 pt-3 border-t">
+            <div className="text-[10px] font-medium text-muted-foreground mb-1.5">
+              建议 Covered Call 行权价
+            </div>
+            <div className="grid grid-cols-3 gap-1.5">
+              {[10, 15, 20].map(pct => {
+                const strike = isStock
+                  ? adjustedCostPerShare * (1 + pct / 100)
+                  : position.strikePrice + adjustedCostPerShare * (1 + pct / 100)
+                const isOTM = strike > position.currentPrice
+                return (
+                  <div key={pct} className="rounded-lg bg-secondary/50 p-2 text-center">
+                    <div className="text-[10px] text-muted-foreground">{pct}%回报</div>
+                    <div className={`text-xs font-semibold ${isOTM ? 'text-foreground' : 'text-warning'}`}>
+                      ${strike.toFixed(0)}
+                    </div>
+                    <div className={`text-[9px] ${isOTM ? 'text-profit' : 'text-warning'}`}>
+                      {isOTM ? 'OTM' : 'ITM'}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+            <p className="text-[9px] text-muted-foreground mt-1.5 leading-relaxed">
+              基于摊薄后成本 {formatCurrency(adjustedCostPerShare)}/股，当前价 ${position.currentPrice.toFixed(1)}
+            </p>
+          </div>
+        )}
+
         {/* Expanded: records list + add form */}
         {expanded && (
           <div className="mt-3 pt-3 border-t animate-fade-in">

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import type { ClosedTrade } from '@/types'
+import type { ClosedTrade, Position } from '@/types'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { formatCurrency, formatDateFull } from '@/lib/calculations'
@@ -34,9 +34,11 @@ interface PerformanceTabProps {
   closedTrades: ClosedTrade[]
   onDeleteTrade: (id: string) => void
   onAddTrade: (trade: Omit<ClosedTrade, 'id'>) => void
+  positions?: Position[]
+  cashBalance?: number
 }
 
-export function PerformanceTab({ closedTrades, onDeleteTrade, onAddTrade }: PerformanceTabProps) {
+export function PerformanceTab({ closedTrades, onDeleteTrade, onAddTrade, positions, cashBalance }: PerformanceTabProps) {
   const [showImport, setShowImport] = useState(false)
   const totalTrades = closedTrades.length
   const wins = closedTrades.filter(t => t.isWin).length
@@ -83,6 +85,24 @@ export function PerformanceTab({ closedTrades, onDeleteTrade, onAddTrade }: Perf
     ? sellPutTrades.filter(t => t.isWin).length / sellPutTrades.length
     : 0
 
+  // Account NAV (rough estimate from positions + cash)
+  const accountNav = (() => {
+    if (!positions || cashBalance === undefined) return 0
+    let stockValue = 0
+    for (const pos of positions) {
+      if (pos.type === 'stock') stockValue += pos.currentPrice * pos.quantity
+    }
+    return cashBalance + stockValue
+  })()
+
+  // Max single loss / NAV ratio (tail risk)
+  const maxSingleLoss = totalTrades > 0
+    ? Math.min(...closedTrades.map(t => t.pnl))
+    : 0
+  const maxLossNavRatio = accountNav > 0 && maxSingleLoss < 0
+    ? Math.abs(maxSingleLoss) / accountNav
+    : null
+
   const insights = generateInsights({
     totalTrades,
     winRate,
@@ -93,6 +113,7 @@ export function PerformanceTab({ closedTrades, onDeleteTrade, onAddTrade }: Perf
     maxConsecLosses,
     sellPutWinRate,
     sellPutCount: sellPutTrades.length,
+    maxLossNavRatio,
   })
 
   return (
@@ -178,6 +199,13 @@ export function PerformanceTab({ closedTrades, onDeleteTrade, onAddTrade }: Perf
                   label="Sell Put 胜率"
                   value={`${(sellPutWinRate * 100).toFixed(1)}%`}
                   isPositive={sellPutWinRate >= 0.5}
+                />
+              )}
+              {maxLossNavRatio !== null && (
+                <DetailRow
+                  label="最大单笔亏损/NAV"
+                  value={`${(maxLossNavRatio * 100).toFixed(1)}%`}
+                  isPositive={maxLossNavRatio < 0.05}
                 />
               )}
             </CardContent>
@@ -314,6 +342,7 @@ interface InsightParams {
   maxConsecLosses: number
   sellPutWinRate: number
   sellPutCount: number
+  maxLossNavRatio: number | null
 }
 
 interface Insight {
@@ -400,6 +429,16 @@ function generateInsights(params: InsightParams): Insight[] {
         message: `Sell Put 胜率偏低，建议：1) 选择更低 Delta（如 0.15-0.20）的行权价；2) 优先在 IV Rank > 50% 时卖出；3) 选择基本面优质、你愿意持有的标的。`,
       })
     }
+  }
+
+  // Tail risk — max single loss / NAV
+  if (params.maxLossNavRatio !== null && params.maxLossNavRatio > 0.05) {
+    insights.push({
+      type: 'negative',
+      message: `最大单笔亏损占账户净值 ${(params.maxLossNavRatio * 100).toFixed(1)}%（超过5%警戒线），尾部风险偏高。建议控制单笔最大仓位在 NAV 的5%以内——即使有70%胜率，连续2-3笔超额亏损会让账户遭受显著回撤。${
+        params.totalTrades < 20 ? '当前仅' + params.totalTrades + '笔交易，样本量不足，高胜率可能存在幸存者偏差。' : ''
+      }`,
+    })
   }
 
   return insights

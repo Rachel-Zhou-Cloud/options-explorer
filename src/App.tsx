@@ -149,6 +149,8 @@ function App() {
             closedTrades={store.closedTrades}
             onDeleteTrade={store.deleteTrade}
             onAddTrade={store.addClosedTrade}
+            positions={store.positions}
+            cashBalance={store.cashBalance}
           />
         )}
         {activeTab === 'risk' && (
@@ -156,7 +158,6 @@ function App() {
             positions={store.positions}
             cashBalance={store.cashBalance}
             onSetCashBalance={store.setCashBalance}
-            apiKey={store.apiKey}
           />
         )}
       </main>
