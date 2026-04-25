@@ -26,9 +26,30 @@ export function PositionsTab({ positions, onAdd, onClose, onUpdate, onDelete, ap
   const [refreshing, setRefreshing] = useState(false)
   const [marketData, setMarketData] = useState<StaticMarketData | null>(null)
 
-  // Load static market data on mount
+  // Load static market data on mount and auto-update positions
   useEffect(() => {
-    fetchStaticMarketData().then(data => { if (data) setMarketData(data) })
+    fetchStaticMarketData().then(data => {
+      if (!data) return
+      setMarketData(data)
+      // Auto-update position prices from Yahoo data
+      let updated = 0
+      for (const pos of positions) {
+        const updates: Partial<Position> = {}
+        const quote = getQuoteFromStaticData(pos.ticker, data)
+        if (quote) updates.currentPrice = quote.price
+        const optData = matchOptionData(pos, data)
+        if (optData && optData.last > 0) updates.currentPremium = optData.last
+        if (Object.keys(updates).length > 0) {
+          onUpdate(pos.id, updates)
+          updated++
+        }
+      }
+      if (updated > 0) {
+        const age = formatDataAge(data.timestamp)
+        showToast(`已自动更新 ${updated} 个持仓行情 (${age})`, 'success')
+      }
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   // Build option data map for each position
