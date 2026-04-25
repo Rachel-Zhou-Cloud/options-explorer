@@ -89,3 +89,31 @@ export interface CalculatorResult {
   /** Premium / Margin raw */
   returnByMargin: number
 }
+
+// ===== Static Market Data (from Yahoo Finance via GitHub Actions) =====
+
+export interface OptionContract {
+  strike: number
+  bid: number
+  ask: number
+  last: number
+  /** Implied volatility (decimal, e.g. 0.2845 = 28.45%) */
+  iv: number
+  volume: number
+  /** Open interest */
+  oi: number
+}
+
+export interface StaticQuote {
+  price: number
+  change: number
+  changePercent: number
+  name: string
+}
+
+export interface StaticMarketData {
+  timestamp: string
+  quotes: Record<string, StaticQuote>
+  options: Record<string, Record<string, { calls: OptionContract[]; puts: OptionContract[] }>>
+  errors?: string[]
+}

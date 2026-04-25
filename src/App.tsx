@@ -3,10 +3,10 @@ import { CalculatorTab } from '@/components/CalculatorTab'
 import { PositionsTab } from '@/components/PositionsTab'
 import { PerformanceTab } from '@/components/PerformanceTab'
 import { CostAnalysisTab } from '@/components/CostAnalysisTab'
-import { ToastContainer } from '@/components/ui/toast'
+import { ToastContainer, showToast } from '@/components/ui/toast'
 import { useStore } from '@/store/useStore'
 import type { Position } from '@/types'
-import { Calculator, Layers, Trophy, PiggyBank, Settings, X } from 'lucide-react'
+import { Calculator, Layers, Trophy, PiggyBank, Settings, X, Wifi, Copy } from 'lucide-react'
 
 type TabId = 'calculator' | 'positions' | 'cost' | 'performance'
 
@@ -73,6 +73,33 @@ function App() {
               >
                 保存
               </button>
+
+              {/* Yahoo Finance data info */}
+              <div className="border-t pt-3 mt-1">
+                <div className="flex items-center gap-1.5 mb-2">
+                  <Wifi className="h-3.5 w-3.5 text-profit" />
+                  <span className="text-xs font-medium text-foreground">Yahoo Finance 数据</span>
+                </div>
+                <p className="text-[10px] text-muted-foreground leading-relaxed mb-2">
+                  通过 GitHub Actions 每30分钟自动抓取 Yahoo Finance 期权数据（美股交易时段），无需 API Key。
+                  监控列表中的股票可自动获取报价和期权链数据（Bid/Ask、IV、成交量、未平仓量）。
+                </p>
+                <button
+                  onClick={() => {
+                    const tickers = [...new Set(store.positions.map(p => p.ticker.toUpperCase()))].sort()
+                    if (tickers.length === 0) {
+                      showToast('暂无持仓', 'error')
+                      return
+                    }
+                    navigator.clipboard.writeText(JSON.stringify(tickers))
+                    showToast(`已复制 ${tickers.length} 个股票代码`, 'success')
+                  }}
+                  className="flex items-center gap-1.5 rounded-lg bg-secondary px-3 py-2 text-[11px] font-medium text-secondary-foreground transition-colors hover:bg-secondary/80"
+                >
+                  <Copy className="h-3 w-3" />
+                  从持仓复制 Tickers (用于更新 watchlist.json)
+                </button>
+              </div>
             </div>
           </div>
         </div>

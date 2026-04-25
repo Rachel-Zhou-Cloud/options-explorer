@@ -1,3 +1,5 @@
+import type { Position, StaticMarketData, OptionContract } from '@/types'
+
 const TWELVE_DATA_BASE = 'https://api.twelvedata.com'
 
 export interface QuoteResult {
@@ -106,4 +108,139 @@ export async function fetchSingleQuote(
 ): Promise<QuoteResult | null> {
   const result = await fetchQuotes([ticker], apiKey)
   return result[ticker.toUpperCase()] || null
+}
+
+// ===== Static Market Data (Yahoo Finance via GitHub Actions) =====
+
+const STATIC_DATA_URL = `${import.meta.env.BASE_URL}data/market-data.json`
+
+let cachedData: StaticMarketData | null = null
+let cacheTimestamp = 0
+const CACHE_TTL_MS = 5 * 60 * 1000 // 5 minutes
+
+/**
+ * Fetch the static market data JSON from GitHub Pages.
+ * Caches in memory for 5 minutes to avoid redundant fetches.
+ */
+export async function fetchStaticMarketData(): Promise<StaticMarketData | null> {
+  const now = Date.now()
+  if (cachedData && now - cacheTimestamp < CACHE_TTL_MS) {
+    return cachedData
+  }
+
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 10000)
+
+  try {
+    // Cache-bust rounded to 5-min intervals so CDN doesn't cache indefinitely
+    const cacheBust = Math.floor(now / (5 * 60 * 1000))
+    const response = await fetch(`${STATIC_DATA_URL}?v=${cacheBust}`, {
+      signal: controller.signal,
+    })
+    if (!response.ok) return null
+    const data = await response.json() as StaticMarketData
+    if (!data || !data.timestamp || !data.quotes) return null
+    cachedData = data
+    cacheTimestamp = now
+    return data
+  } catch {
+    return cachedData // Return stale cache on error
+  } finally {
+    clearTimeout(timeout)
+  }
+}
+
+/**
+ * Check if the static data is still fresh.
+ */
+export function isDataFresh(timestamp: string, maxAgeMinutes: number = 120): boolean {
+  const dataTime = new Date(timestamp).getTime()
+  if (isNaN(dataTime)) return false
+  return Date.now() - dataTime < maxAgeMinutes * 60 * 1000
+}
+
+/**
+ * Get a stock quote from the static market data (same format as QuoteResult).
+ */
+export function getQuoteFromStaticData(
+  ticker: string,
+  data: StaticMarketData
+): QuoteResult | null {
+  const q = data.quotes[ticker.toUpperCase()]
+  if (!q) return null
+  return {
+    price: q.price,
+    change: q.change,
+    percentChange: q.changePercent,
+    name: q.name,
+  }
+}
+
+/**
+ * Match a position to its specific option contract in the static data.
+ * Returns the matched OptionContract (with IV, bid, ask, volume, OI) or null.
+ */
+export function matchOptionData(
+  position: Position,
+  data: StaticMarketData
+): OptionContract | null {
+  if (position.type === 'stock' || position.type === 'custom') return null
+  if (!position.expirationDate) return null
+
+  const ticker = position.ticker.toUpperCase()
+  const tickerOptions = data.options[ticker]
+  if (!tickerOptions) return null
+
+  // Find the matching expiry date
+  const posExpiry = position.expirationDate.split('T')[0] // YYYY-MM-DD
+  const chain = tickerOptions[posExpiry]
+  if (!chain) {
+    // Try to find the closest expiry within 3 days
+    const posDate = new Date(posExpiry).getTime()
+    let closest: { key: string; diff: number } | null = null
+    for (const key of Object.keys(tickerOptions)) {
+      const diff = Math.abs(new Date(key).getTime() - posDate)
+      if (diff <= 3 * 86400000 && (!closest || diff < closest.diff)) {
+        closest = { key, diff }
+      }
+    }
+    if (!closest) return null
+    return findContract(tickerOptions[closest.key], position)
+  }
+
+  return findContract(chain, position)
+}
+
+function findContract(
+  chain: { calls: OptionContract[]; puts: OptionContract[] },
+  position: Position
+): OptionContract | null {
+  const isPut = position.type === 'sell_put' || position.type === 'buy_put'
+  const contracts = isPut ? chain.puts : chain.calls
+
+  // Find exact or closest strike within $0.50
+  let best: OptionContract | null = null
+  let bestDiff = Infinity
+  for (const c of contracts) {
+    const diff = Math.abs(c.strike - position.strikePrice)
+    if (diff < bestDiff) {
+      bestDiff = diff
+      best = c
+    }
+  }
+  return bestDiff <= 0.5 ? best : null
+}
+
+/**
+ * Format how long ago the data was updated.
+ */
+export function formatDataAge(timestamp: string): string {
+  const ms = Date.now() - new Date(timestamp).getTime()
+  if (isNaN(ms) || ms < 0) return ''
+  const mins = Math.floor(ms / 60000)
+  if (mins < 1) return '刚刚更新'
+  if (mins < 60) return `${mins} 分钟前`
+  const hours = Math.floor(mins / 60)
+  if (hours < 24) return `${hours} 小时前`
+  return `${Math.floor(hours / 24)} 天前`
 }

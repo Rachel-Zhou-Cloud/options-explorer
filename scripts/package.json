@@ -1,0 +1,8 @@
+{
+  "name": "options-data-fetcher",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "yahoo-finance2": "^2.14.0"
+  }
+}

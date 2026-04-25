@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button'
 import { calculateAnnualizedReturn, formatPercent, formatCurrency } from '@/lib/calculations'
 import type { CalculatorResult, Position } from '@/types'
 import { Calculator, TrendingUp, Shield, Info, Search, PlusCircle } from 'lucide-react'
-import { fetchSingleQuote } from '@/lib/marketData'
+import { fetchSingleQuote, fetchStaticMarketData, getQuoteFromStaticData } from '@/lib/marketData'
 import { showToast } from '@/components/ui/toast'
 
 interface CalculatorTabProps {
@@ -27,16 +27,29 @@ export function CalculatorTab({ apiKey, onCreatePosition }: CalculatorTabProps) 
       showToast('请输入股票代码', 'error')
       return
     }
-    if (!apiKey) {
-      showToast('请先在设置中配置 API Key', 'error')
-      return
-    }
     setFetching(true)
     try {
+      // Try static Yahoo data first (no API key needed)
+      const staticData = await fetchStaticMarketData()
+      if (staticData) {
+        const quote = getQuoteFromStaticData(ticker.trim(), staticData)
+        if (quote) {
+          setUnderlyingPrice(quote.price.toFixed(2))
+          showToast(`${ticker.toUpperCase()} $${quote.price.toFixed(2)} (Yahoo)`, 'success')
+          setFetching(false)
+          return
+        }
+      }
+      // Fallback to Twelve Data API
+      if (!apiKey) {
+        showToast('该股票不在监控列表中，需要 API Key 查询', 'error')
+        setFetching(false)
+        return
+      }
       const quote = await fetchSingleQuote(ticker.trim(), apiKey)
       if (quote) {
         setUnderlyingPrice(quote.price.toFixed(2))
-        showToast(`${ticker.toUpperCase()} 当前价格 $${quote.price.toFixed(2)}`, 'success')
+        showToast(`${ticker.toUpperCase()} $${quote.price.toFixed(2)} (API)`, 'success')
       } else {
         showToast('未找到该股票', 'error')
       }

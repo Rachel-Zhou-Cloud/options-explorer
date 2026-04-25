@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import type { Position, PositionType } from '@/types'
+import type { Position, PositionType, OptionContract } from '@/types'
 import {
   daysUntilExpiry,
   expiresWithinDays,
@@ -12,13 +12,16 @@ import {
   estimateGreeks,
   type OptionSide,
 } from '@/lib/calculations'
-import { AlertTriangle, TrendingUp, Target, Clock, X, ChevronDown, ChevronUp, Pencil } from 'lucide-react'
+import { AlertTriangle, TrendingUp, Target, Clock, X, ChevronDown, ChevronUp, Pencil, Activity } from 'lucide-react'
+import { formatDataAge } from '@/lib/marketData'
 
 interface PositionCardProps {
   position: Position
   onClose: (id: string, closePremium: number, closeQty?: number) => void
   onUpdate: (id: string, updates: Partial<Position>) => void
   onDelete: (id: string) => void
+  optionChainData?: OptionContract | null
+  dataTimestamp?: string
 }
 
 const TYPE_LABELS: Record<string, string> = {
@@ -61,7 +64,7 @@ function calcUnrealizedPnl(pos: Position): { pnl: number; pnlPercent: number } |
 const isSellType = (t: PositionType) => t === 'sell_put' || t === 'sell_call'
 const isOptionType = (t: PositionType) => t !== 'stock'
 
-export function PositionCard({ position, onClose, onUpdate, onDelete }: PositionCardProps) {
+export function PositionCard({ position, onClose, onUpdate, onDelete, optionChainData, dataTimestamp }: PositionCardProps) {
   const [expanded, setExpanded] = useState(false)
   const [showCloseForm, setShowCloseForm] = useState(false)
   const [closePremium, setClosePremium] = useState('')
@@ -90,7 +93,7 @@ export function PositionCard({ position, onClose, onUpdate, onDelete }: Position
 
   const unrealized = calcUnrealizedPnl(position)
 
-  // Greeks estimation for options
+  // Greeks estimation for options — use real IV from Yahoo when available
   const greeks = isOptionType(position.type) && dte !== null && dte > 0 && position.currentPremium !== undefined
     ? estimateGreeks(
         (position.type === 'sell_put' || position.type === 'buy_put') ? 'put' as OptionSide : 'call' as OptionSide,
@@ -98,6 +101,7 @@ export function PositionCard({ position, onClose, onUpdate, onDelete }: Position
         position.strikePrice,
         dte,
         position.currentPremium,
+        optionChainData?.iv,
       )
     : null
 
@@ -286,6 +290,37 @@ export function PositionCard({ position, onClose, onUpdate, onDelete }: Position
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">时间价值</span>
                       <span className="text-foreground">{formatCurrency(greeks.timeValue)}</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Market data from Yahoo Finance */}
+              {optionChainData && isOptionType(position.type) && (
+                <div className="mt-2.5 pt-2 border-t border-dashed">
+                  <div className="flex items-center gap-1.5 mb-1.5">
+                    <Activity className="h-3 w-3 text-primary" />
+                    <span className="text-[10px] font-medium text-muted-foreground">市场数据</span>
+                    {dataTimestamp && (
+                      <span className="text-[10px] text-muted-foreground ml-auto">{formatDataAge(dataTimestamp)}</span>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Bid / Ask</span>
+                      <span className="text-foreground">{formatCurrency(optionChainData.bid)} / {formatCurrency(optionChainData.ask)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">IV</span>
+                      <span className="text-foreground font-medium">{(optionChainData.iv * 100).toFixed(1)}%</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">成交量</span>
+                      <span className="text-foreground">{optionChainData.volume.toLocaleString()}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">未平仓</span>
+                      <span className="text-foreground">{optionChainData.oi.toLocaleString()}</span>
                     </div>
                   </div>
                 </div>

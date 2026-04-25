@@ -1,0 +1,47 @@
+name: Fetch Yahoo Finance Data
+
+on:
+  schedule:
+    # Every 30 min during US market hours (Mon-Fri, 13:00-21:00 UTC)
+    - cron: '0,30 13-21 * * 1-5'
+  workflow_dispatch: {}
+
+concurrency:
+  group: data-fetch
+  cancel-in-progress: true
+
+jobs:
+  fetch-data:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install script dependencies
+        run: cd scripts && npm install
+
+      - name: Fetch market data
+        run: node scripts/fetch-options-data.mjs
+
+      - name: Check for changes
+        id: check
+        run: |
+          git add public/data/market-data.json
+          if git diff --cached --quiet; then
+            echo "changed=false" >> $GITHUB_OUTPUT
+          else
+            echo "changed=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Commit and push
+        if: steps.check.outputs.changed == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git commit -m "chore: update market data [automated]"
+          git push
