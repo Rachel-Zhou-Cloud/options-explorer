@@ -21,9 +21,6 @@ const DELAY_BETWEEN_TICKERS_MS = 1000;
 const DELAY_BETWEEN_EXPIRIES_MS = 500;
 const QUOTE_TIMEOUT_MS = 10000;
 
-// Suppress yahoo-finance2 historical data notices
-yahooFinance.suppressNotices(['yahooSurvey']);
-
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
