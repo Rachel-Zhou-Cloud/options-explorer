@@ -136,6 +136,8 @@ export type OptionSide = 'call' | 'put'
 export interface GreeksResult {
   delta: number
   theta: number       // per calendar day
+  vega: number        // per 1.0 IV change (per share)
+  gamma: number       // rate of change of delta per $1 move
   moneyness: 'ITM' | 'ATM' | 'OTM'
   moneynessPercent: number  // how far OTM/ITM as % of strike
   intrinsicValue: number    // per share
@@ -176,10 +178,17 @@ export function estimateGreeks(
   const delta = side === 'call' ? normCdf(d1) : normCdf(d1) - 1
 
   // Theta (per calendar day)
-  const thetaComponent1 = -(S * normPdf(d1) * sigma) / (2 * sqrtT)
+  const npd1 = normPdf(d1)
+  const thetaComponent1 = -(S * npd1 * sigma) / (2 * sqrtT)
   const theta = side === 'call'
     ? (thetaComponent1 - r * K * Math.exp(-r * T) * normCdf(d2)) / 365
     : (thetaComponent1 + r * K * Math.exp(-r * T) * normCdf(-d2)) / 365
+
+  // Vega: per 1.0 IV change (per share)
+  const vega = S * npd1 * sqrtT
+
+  // Gamma: same for calls and puts
+  const gamma = npd1 / (S * sigma * sqrtT)
 
   // Moneyness
   const moneynessPercent = ((S - K) / K) * 100
@@ -201,7 +210,7 @@ export function estimateGreeks(
   // 1-sigma implied move
   const impliedMove = S * sigma * sqrtT
 
-  return { delta, theta, moneyness, moneynessPercent, intrinsicValue, timeValue, impliedMove }
+  return { delta, theta, vega, gamma, moneyness, moneynessPercent, intrinsicValue, timeValue, impliedMove }
 }
 
 /** Simple IV estimation via bisection */

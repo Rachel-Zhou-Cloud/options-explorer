@@ -6,6 +6,7 @@ const STORAGE_KEY_POSITIONS = 'options-explorer-positions'
 const STORAGE_KEY_TRADES = 'options-explorer-trades'
 const STORAGE_KEY_COST_RECORDS = 'options-explorer-cost-records'
 const STORAGE_KEY_API_KEY = 'options-explorer-api-key'
+const STORAGE_KEY_CASH_BALANCE = 'options-explorer-cash-balance'
 
 function loadFromStorage<T>(key: string, fallback: T): T {
   try {
@@ -34,6 +35,9 @@ export function useStore() {
   const [apiKey, setApiKeyState] = useState<string>(() => {
     try { return localStorage.getItem(STORAGE_KEY_API_KEY) || '' } catch { return '' }
   })
+  const [cashBalance, setCashBalanceState] = useState<number>(() =>
+    loadFromStorage(STORAGE_KEY_CASH_BALANCE, 0)
+  )
 
   useEffect(() => {
     saveToStorage(STORAGE_KEY_POSITIONS, positions)
@@ -46,6 +50,14 @@ export function useStore() {
   useEffect(() => {
     saveToStorage(STORAGE_KEY_COST_RECORDS, costRecords)
   }, [costRecords])
+
+  useEffect(() => {
+    saveToStorage(STORAGE_KEY_CASH_BALANCE, cashBalance)
+  }, [cashBalance])
+
+  const setCashBalance = useCallback((value: number) => {
+    setCashBalanceState(value)
+  }, [])
 
   const addPosition = useCallback((pos: Omit<Position, 'id' | 'isClosed'>) => {
     setPositions(prev => {
@@ -175,6 +187,7 @@ export function useStore() {
     closedTrades,
     costRecords,
     apiKey,
+    cashBalance,
     addPosition,
     updatePosition,
     closePosition,
@@ -185,5 +198,6 @@ export function useStore() {
     deleteCostRecord,
     getCostRecordsForPosition,
     setApiKey,
+    setCashBalance,
   }
 }
