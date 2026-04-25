@@ -32,21 +32,30 @@ function App() {
     if (store.positions.length === 0) return
     fetchStaticMarketData().then(data => {
       if (!data) return
-      let updated = 0
+      // Build batch update map: only include changes where value actually differs
+      const updatesMap: Record<string, Partial<Position>> = {}
+      const changedTickers: string[] = []
       for (const pos of store.positions) {
         const updates: Partial<Position> = {}
         const quote = getQuoteFromStaticData(pos.ticker, data)
-        if (quote) updates.currentPrice = quote.price
+        if (quote && quote.price > 0 && quote.price !== pos.currentPrice) {
+          updates.currentPrice = quote.price
+        }
         const optData = matchOptionData(pos, data)
-        if (optData && optData.last > 0) updates.currentPremium = optData.last
+        if (optData && optData.last > 0 && optData.last !== pos.currentPremium) {
+          updates.currentPremium = optData.last
+        }
         if (Object.keys(updates).length > 0) {
-          store.updatePosition(pos.id, updates)
-          updated++
+          updatesMap[pos.id] = updates
+          if (!changedTickers.includes(pos.ticker)) changedTickers.push(pos.ticker)
         }
       }
-      if (updated > 0) {
+      if (Object.keys(updatesMap).length > 0) {
+        store.batchUpdatePositions(updatesMap)
         const age = formatDataAge(data.timestamp)
-        showToast(`已自动更新 ${updated} 个持仓行情 (${age})`, 'success')
+        const tickers = changedTickers.slice(0, 5).join(', ')
+        const more = changedTickers.length > 5 ? `等${changedTickers.length}只` : ''
+        showToast(`行情已更新: ${tickers}${more} (${age})`, 'success')
       }
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps

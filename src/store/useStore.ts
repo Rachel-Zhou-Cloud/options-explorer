@@ -89,6 +89,14 @@ export function useStore() {
     setPositions(prev => prev.map(p => p.id === id ? { ...p, ...updates } : p))
   }, [])
 
+  // Batch update multiple positions in a single setPositions call
+  const batchUpdatePositions = useCallback((updatesMap: Record<string, Partial<Position>>) => {
+    setPositions(prev => prev.map(p => {
+      const u = updatesMap[p.id]
+      return u ? { ...p, ...u } : p
+    }))
+  }, [])
+
   const closePosition = useCallback((id: string, closePremium: number, closeQty?: number) => {
     setPositions(prev => {
       const pos = prev.find(p => p.id === id)
@@ -190,6 +198,7 @@ export function useStore() {
     cashBalance,
     addPosition,
     updatePosition,
+    batchUpdatePositions,
     closePosition,
     deletePosition,
     deleteTrade,
