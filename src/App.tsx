@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { CalculatorTab } from '@/components/CalculatorTab'
 import { PositionsTab } from '@/components/PositionsTab'
 import { PerformanceTab } from '@/components/PerformanceTab'
@@ -8,6 +8,7 @@ import { ToastContainer, showToast } from '@/components/ui/toast'
 import { useStore } from '@/store/useStore'
 import type { Position } from '@/types'
 import { Calculator, Layers, Trophy, PiggyBank, Shield, Settings, X, Wifi, Copy } from 'lucide-react'
+import { fetchStaticMarketData, getQuoteFromStaticData, matchOptionData, formatDataAge } from '@/lib/marketData'
 
 type TabId = 'calculator' | 'positions' | 'cost' | 'performance' | 'risk'
 
@@ -25,6 +26,31 @@ function App() {
   const [apiKeyInput, setApiKeyInput] = useState('')
   const [prefillPosition, setPrefillPosition] = useState<Partial<Position> | null>(null)
   const store = useStore()
+
+  // Auto-update all positions from Yahoo Finance data on app start
+  useEffect(() => {
+    if (store.positions.length === 0) return
+    fetchStaticMarketData().then(data => {
+      if (!data) return
+      let updated = 0
+      for (const pos of store.positions) {
+        const updates: Partial<Position> = {}
+        const quote = getQuoteFromStaticData(pos.ticker, data)
+        if (quote) updates.currentPrice = quote.price
+        const optData = matchOptionData(pos, data)
+        if (optData && optData.last > 0) updates.currentPremium = optData.last
+        if (Object.keys(updates).length > 0) {
+          store.updatePosition(pos.id, updates)
+          updated++
+        }
+      }
+      if (updated > 0) {
+        const age = formatDataAge(data.timestamp)
+        showToast(`已自动更新 ${updated} 个持仓行情 (${age})`, 'success')
+      }
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const openSettings = () => {
     setApiKeyInput(store.apiKey)
