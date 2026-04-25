@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { CalculatorTab } from '@/components/CalculatorTab'
 import { PositionsTab } from '@/components/PositionsTab'
 import { PerformanceTab } from '@/components/PerformanceTab'
@@ -27,39 +27,59 @@ function App() {
   const [prefillPosition, setPrefillPosition] = useState<Partial<Position> | null>(null)
   const store = useStore()
 
-  // Auto-update all positions from Yahoo Finance data on app start
-  useEffect(() => {
-    if (store.positions.length === 0) return
-    fetchStaticMarketData().then(data => {
-      if (!data) return
-      // Build batch update map: only include changes where value actually differs
-      const updatesMap: Record<string, Partial<Position>> = {}
-      const changedTickers: string[] = []
-      for (const pos of store.positions) {
-        const updates: Partial<Position> = {}
-        const quote = getQuoteFromStaticData(pos.ticker, data)
-        if (quote && quote.price > 0 && quote.price !== pos.currentPrice) {
-          updates.currentPrice = quote.price
-        }
-        const optData = matchOptionData(pos, data)
-        if (optData && optData.last > 0 && optData.last !== pos.currentPremium) {
-          updates.currentPremium = optData.last
-        }
-        if (Object.keys(updates).length > 0) {
-          updatesMap[pos.id] = updates
-          if (!changedTickers.includes(pos.ticker)) changedTickers.push(pos.ticker)
-        }
+  // Ref to always have latest positions for async callbacks
+  const positionsRef = useRef(store.positions)
+  positionsRef.current = store.positions
+
+  // Reusable auto-update: fetch Yahoo data and batch-update all positions
+  const runAutoUpdate = useCallback(async (notify: boolean) => {
+    const positions = positionsRef.current
+    if (positions.length === 0) return
+    const data = await fetchStaticMarketData()
+    if (!data) return
+    const updatesMap: Record<string, Partial<Position>> = {}
+    const changedTickers: string[] = []
+    for (const pos of positions) {
+      const updates: Partial<Position> = {}
+      const quote = getQuoteFromStaticData(pos.ticker, data)
+      if (quote && quote.price > 0 && quote.price !== pos.currentPrice) {
+        updates.currentPrice = quote.price
       }
-      if (Object.keys(updatesMap).length > 0) {
-        store.batchUpdatePositions(updatesMap)
+      const optData = matchOptionData(pos, data)
+      if (optData && optData.last > 0 && optData.last !== pos.currentPremium) {
+        updates.currentPremium = optData.last
+      }
+      if (Object.keys(updates).length > 0) {
+        updatesMap[pos.id] = updates
+        if (!changedTickers.includes(pos.ticker)) changedTickers.push(pos.ticker)
+      }
+    }
+    if (Object.keys(updatesMap).length > 0) {
+      store.batchUpdatePositions(updatesMap)
+      if (notify) {
         const age = formatDataAge(data.timestamp)
         const tickers = changedTickers.slice(0, 5).join(', ')
         const more = changedTickers.length > 5 ? `等${changedTickers.length}只` : ''
         showToast(`行情已更新: ${tickers}${more} (${age})`, 'success')
       }
-    })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+    }
+  }, [store.batchUpdatePositions])
+
+  // Auto-update on app start
+  useEffect(() => {
+    runAutoUpdate(true)
+  }, [runAutoUpdate])
+
+  // Auto-update when new positions are added
+  const positionCount = store.positions.length
+  const prevCountRef = useRef(positionCount)
+  useEffect(() => {
+    if (positionCount > prevCountRef.current) {
+      // New position added — silently match Yahoo data for it
+      runAutoUpdate(false)
+    }
+    prevCountRef.current = positionCount
+  }, [positionCount, runAutoUpdate])
 
   const openSettings = () => {
     setApiKeyInput(store.apiKey)
