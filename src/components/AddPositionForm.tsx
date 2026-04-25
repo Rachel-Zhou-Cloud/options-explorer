@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button'
 import type { Position, PositionType } from '@/types'
 import { showToast } from '@/components/ui/toast'
 import { X, Search } from 'lucide-react'
-import { fetchSingleQuote } from '@/lib/marketData'
+import { fetchSingleQuote, fetchStaticMarketData, getQuoteFromStaticData, formatDataAge } from '@/lib/marketData'
 
 interface AddPositionFormProps {
   onAdd: (pos: Omit<Position, 'id' | 'isClosed'>) => void
@@ -52,12 +52,24 @@ export function AddPositionForm({ onAdd, onCancel, apiKey, positions, prefill }:
       showToast('请先输入股票代码', 'error')
       return
     }
-    if (!apiKey) {
-      showToast('请先在设置中配置 API Key', 'error')
-      return
-    }
     setFetching(true)
     try {
+      // Try Yahoo static data first (no API key needed)
+      const staticData = await fetchStaticMarketData()
+      if (staticData) {
+        const quote = getQuoteFromStaticData(ticker.trim(), staticData)
+        if (quote && quote.price > 0) {
+          setCurrentPrice(quote.price.toFixed(2))
+          const age = formatDataAge(staticData.timestamp)
+          showToast(`${ticker.toUpperCase()} $${quote.price.toFixed(2)} (Yahoo ${age})`, 'success')
+          return
+        }
+      }
+      // Fallback to Twelve Data API
+      if (!apiKey) {
+        showToast('Yahoo 数据中未找到该股票，可在设置中配置 API Key 扩展查价范围', 'error')
+        return
+      }
       const quote = await fetchSingleQuote(ticker.trim(), apiKey)
       if (quote) {
         setCurrentPrice(quote.price.toFixed(2))
