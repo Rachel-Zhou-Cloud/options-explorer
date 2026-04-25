@@ -4,12 +4,15 @@
  * Writes results to public/data/market-data.json for the PWA to consume.
  */
 
-import yahooFinance from 'yahoo-finance2';
+import YahooFinance from 'yahoo-finance2';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+// Instantiate yahoo-finance2 v3
+const yahooFinance = new YahooFinance({ suppressNotices: ['yahooSurvey'] });
 const ROOT = path.resolve(__dirname, '..');
 const WATCHLIST_PATH = path.join(ROOT, 'data', 'watchlist.json');
 const OUTPUT_PATH = path.join(ROOT, 'public', 'data', 'market-data.json');
@@ -99,9 +102,8 @@ async function fetchOptionsForTicker(ticker, currentPrice) {
       await sleep(DELAY_BETWEEN_EXPIRIES_MS);
       try {
         const expiryDate = expiryList[i];
-        // yahoo-finance2 expects epoch seconds for date param
-        const epochSec = Math.floor(new Date(expiryDate).getTime() / 1000);
-        const result = await yahooFinance.options(ticker, { date: epochSec });
+        // yahoo-finance2 v3 accepts Date object for date param
+        const result = await yahooFinance.options(ticker, { date: new Date(expiryDate) });
         if (result && result.options && result.options.length > 0) {
           const opt = result.options[0];
           const expiryStr = dateToStr(opt.expirationDate);
