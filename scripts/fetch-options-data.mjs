@@ -17,12 +17,14 @@ const ROOT = path.resolve(__dirname, '..');
 const WATCHLIST_PATH = path.join(ROOT, 'data', 'watchlist.json');
 const OUTPUT_PATH = path.join(ROOT, 'public', 'data', 'market-data.json');
 
-// Config
-const MAX_NEAR_EXPIRIES = 3;         // Nearest 3 expiry dates (weeklies/monthlies)
-const MAX_LEAP_EXPIRIES = 3;         // Up to 3 LEAP dates (90+ days out)
-const STRIKE_RANGE_PCT = 0.20;       // ±20% of current price (near-term)
+// Config — 3-tier date selection to avoid gaps
+const MAX_WEEKLY_EXPIRIES = 2;       // Nearest weekly dates (< 14 days out)
+const MAX_MONTHLY_EXPIRIES = 3;      // Monthly dates (14–90 days out, e.g. Jun/Jul monthlies)
+const MAX_LEAP_EXPIRIES = 3;         // LEAP dates (90+ days out)
+const WEEKLY_THRESHOLD_DAYS = 14;    // < 14 days = weekly
+const LEAP_THRESHOLD_DAYS = 90;      // >= 90 days = LEAP
+const STRIKE_RANGE_PCT = 0.20;       // ±20% of current price (weekly/monthly)
 const STRIKE_RANGE_LEAP_PCT = 0.30;  // ±30% for LEAPs (wider range)
-const LEAP_THRESHOLD_DAYS = 90;      // Expiry dates 90+ days out are considered LEAP
 const DELAY_BETWEEN_TICKERS_MS = 1000;
 const DELAY_BETWEEN_EXPIRIES_MS = 500;
 const QUOTE_TIMEOUT_MS = 10000;
@@ -80,29 +82,34 @@ function round2(n) { return Math.round(n * 100) / 100; }
 function round4(n) { return Math.round(n * 10000) / 10000; }
 
 /**
- * Select a mix of near-term and LEAP expiry dates from available dates.
- * - Near-term: up to MAX_NEAR_EXPIRIES (nearest weeklies/monthlies)
- * - LEAP: up to MAX_LEAP_EXPIRIES from dates 90+ days out
+ * Select expiry dates in 3 tiers to avoid coverage gaps:
+ * - Weekly:  < 14 days out  (up to 2 — nearest weeklies)
+ * - Monthly: 14–90 days out (up to 3 — covers Jun/Jul/Aug monthlies)
+ * - LEAP:    90+ days out   (up to 3 — far-out dates)
  */
 function selectExpiryDates(expiryDates) {
   const now = Date.now();
+  const weeklyCutoff = now + WEEKLY_THRESHOLD_DAYS * 86400000;
   const leapCutoff = now + LEAP_THRESHOLD_DAYS * 86400000;
 
-  const near = [];
+  const weekly = [];
+  const monthly = [];
   const leap = [];
 
   for (const d of expiryDates) {
     const ts = new Date(d).getTime();
     if (isNaN(ts)) continue;
-    if (ts < leapCutoff) {
-      if (near.length < MAX_NEAR_EXPIRIES) near.push(d);
+    if (ts < weeklyCutoff) {
+      if (weekly.length < MAX_WEEKLY_EXPIRIES) weekly.push(d);
+    } else if (ts < leapCutoff) {
+      if (monthly.length < MAX_MONTHLY_EXPIRIES) monthly.push(d);
     } else {
       if (leap.length < MAX_LEAP_EXPIRIES) leap.push(d);
     }
-    if (near.length >= MAX_NEAR_EXPIRIES && leap.length >= MAX_LEAP_EXPIRIES) break;
+    if (weekly.length >= MAX_WEEKLY_EXPIRIES && monthly.length >= MAX_MONTHLY_EXPIRIES && leap.length >= MAX_LEAP_EXPIRIES) break;
   }
 
-  return { near, leap };
+  return { weekly, monthly, leap };
 }
 
 async function fetchOptionsForTicker(ticker, currentPrice) {
@@ -114,8 +121,8 @@ async function fetchOptionsForTicker(ticker, currentPrice) {
     if (!firstResult) return chainsByExpiry;
 
     const expiryDates = firstResult.expirationDates || [];
-    const { near, leap } = selectExpiryDates(expiryDates);
-    const allExpiries = [...near, ...leap];
+    const { weekly, monthly, leap } = selectExpiryDates(expiryDates);
+    const allExpiries = [...weekly, ...monthly, ...leap];
 
     // Process the first expiry's data (included in the initial response)
     if (firstResult.options && firstResult.options.length > 0) {
