@@ -1,4 +1,4 @@
-const CACHE_NAME = 'options-explorer-v8';
+const CACHE_NAME = 'options-explorer-v9';
 const BASE_PATH = '/options-explorer/';
 
 // Install: cache all critical assets

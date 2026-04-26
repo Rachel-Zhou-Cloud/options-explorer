@@ -245,16 +245,43 @@ function computeNetTheta(positions: AlertPosition[]): number {
   return net
 }
 
-// ===== 主入口 =====
+// ===== Priority 修正函数 =====
 
 /**
- * 根据持仓和账户数据生成结构化预警数组。
+ * DTE 修正规则 — 仅对期权持仓生效。
+ * 在基础 priority 上根据到期天数上调/下调。
  *
- * @param positions  当前持仓列表（股票 + 期权，已平仓的由调用方过滤）
- * @param cashBalance  账户现金余额
- * @param getCostRecords  (positionId) => CostRecord[] — 查询该仓位的成本摊薄记录
- * @returns 按 level→priority 排序的预警数组
+ * @param basePriority  规则基础 priority (1/2/3)
+ * @param dte          到期剩余天数 (null = 无到期日，不修正)
+ * @param isOTM        是否虚值 (仅用于 Pin Risk 判断)
  */
+function applyDTECorrection(
+  basePriority: 1 | 2 | 3,
+  dte: number | null,
+  isOTM: boolean,
+): 1 | 2 | 3 {
+  if (dte === null || dte <= 0) return basePriority
+  // Pin Risk: DTE ≤ 7 且 OTM → 强制 P1
+  if (dte <= 7 && isOTM) return 1
+  // DTE ≤ 21: 上调一级 (P2→P1, P3→P2)
+  if (dte <= 21) return Math.max(1, basePriority - 1) as 1 | 2 | 3
+  // DTE 22-45: 保持基础级别不变
+  if (dte <= 45) return basePriority
+  // DTE > 45: 下调一级 (P1→P2, P2→P3)
+  return Math.min(3, basePriority + 1) as 1 | 2 | 3
+}
+
+/** 判断期权是否虚值（put: 股价>行权价, call: 股价<行权价） */
+function getIsOTM(pos: AlertPosition): boolean {
+  if (pos.currentPrice <= 0) return false
+  if (pos.type === 'sell_put' || pos.type === 'buy_put') {
+    return pos.currentPrice > pos.strikePrice
+  }
+  return pos.currentPrice < pos.strikePrice
+}
+
+// ===== 主入口 =====
+
 export function generateAlerts(
   positions: AlertPosition[],
   cashBalance: number,
@@ -263,14 +290,13 @@ export function generateAlerts(
   const alerts: Alert[] = []
   if (positions.length === 0) return alerts
 
-  // 过滤已平仓
-  const active = positions // 调用方传入前已过滤 isClosed
+  const active = positions
 
   // --- 账户级指标 ---
   const { nav, cashRatio, bprUtilization } = computeAccountMetrics(active, cashBalance)
   const netTheta = computeNetTheta(active)
 
-  // ---- 现金比例 (target: '账户') ----
+  // ---- 现金比例 (target: '账户', 不受 DTE 修正) ----
   if (nav > 0) {
     if (cashRatio >= 0.40) {
       alerts.push({
@@ -279,23 +305,27 @@ export function generateAlerts(
         priority: 3,
       })
     } else if (cashRatio >= 0.20) {
-      const p = cashRatio < 0.15 ? 1 : 2
       alerts.push({
         level: 'yellow', target: '账户',
         message: `现金比例 ${(cashRatio * 100).toFixed(0)}%，偏低，注意流动性`,
-        priority: p as 1 | 2,
+        priority: 3,
+      })
+    } else if (cashRatio >= 0.15) {
+      alerts.push({
+        level: 'red', target: '账户',
+        message: `现金比例 ${(cashRatio * 100).toFixed(0)}%，偏低`,
+        priority: 2,
       })
     } else {
-      const p = cashRatio < 0.15 ? 1 : 2
       alerts.push({
         level: 'red', target: '账户',
         message: `现金比例仅 ${(cashRatio * 100).toFixed(0)}%，严重不足`,
-        priority: p as 1 | 2,
+        priority: 1,
       })
     }
   }
 
-  // ---- BPR 占用率 (target: '账户') ----
+  // ---- BPR 占用率 (target: '账户', 不受 DTE 修正) ----
   if (nav > 0) {
     if (bprUtilization < 0.30) {
       alerts.push({
@@ -318,7 +348,7 @@ export function generateAlerts(
     }
   }
 
-  // ---- 净 Theta (target: '账户') ----
+  // ---- 净 Theta (target: '账户', 不受 DTE 修正) ----
   {
     const t = netTheta
     if (t > 0) {
@@ -337,7 +367,7 @@ export function generateAlerts(
       alerts.push({
         level: 'red', target: '账户',
         message: `净Theta $${t.toFixed(0)}/天，时间损耗过重`,
-        priority: 3,
+        priority: 2,
       })
     }
   }
@@ -349,32 +379,32 @@ export function generateAlerts(
     if (pos.type === 'sell_put') {
       const dte = pos.expirationDate ? daysUntilExpiry(pos.expirationDate) : null
       const distPct = moneynessDist(pos)
+      const otm = getIsOTM(pos)
 
-      // --- Moneyness ---
+      // --- Moneyness（基础 priority + DTE 修正） ---
       if (distPct !== null) {
         if (distPct < 0) {
-          // ITM → red, P1
+          const pri = applyDTECorrection(1, dte, otm)
           alerts.push({
             level: 'red', target: pos.id,
             message: `${pos.ticker} $${pos.strikePrice}P 已进入实值，行权风险高，立即决策`,
-            priority: 1,
+            priority: pri,
           })
         } else if (distPct <= 2) {
-          // ATM / OTM 0-2% → orange, P2
+          const pri = applyDTECorrection(2, dte, otm)
           alerts.push({
             level: 'orange', target: pos.id,
             message: `${pos.ticker} $${pos.strikePrice}P 已贴近行权价(${distPct.toFixed(1)}%OTM)，建议评估Roll或接股策略`,
-            priority: 2,
+            priority: pri,
           })
         } else if (distPct <= 5) {
-          // OTM 2-5% → yellow, P3
+          const pri = applyDTECorrection(3, dte, otm)
           alerts.push({
             level: 'yellow', target: pos.id,
             message: `${pos.ticker} $${pos.strikePrice}P 距行权价${distPct.toFixed(1)}%，开始关注标的走势`,
-            priority: 3,
+            priority: pri,
           })
         } else {
-          // OTM > 5% → green
           alerts.push({
             level: 'green', target: pos.id,
             message: `${pos.ticker} $${pos.strikePrice}P 距行权价安全(${distPct.toFixed(1)}%OTM)，时间价值衰减中`,
@@ -383,15 +413,13 @@ export function generateAlerts(
         }
       }
 
-      // --- DTE ---
+      // --- DTE 专项告警（自身已是 DTE 判断，不再经 DTE 修正） ---
       if (dte !== null && dte > 0) {
-        const isOtm = distPct !== null && distPct >= 0
-        if (dte < 7 && isOtm) {
-          // Pin Risk → red
+        if (dte < 7 && otm) {
           alerts.push({
             level: 'red', target: pos.id,
             message: `${pos.ticker} $${pos.strikePrice}P 仅剩${dte}天到期且OTM，Pin Risk！强烈建议立即平仓`,
-            priority: 2, // P2: DTE<21 规则
+            priority: 1,
           })
         } else if (dte < 21) {
           alerts.push({
@@ -414,32 +442,36 @@ export function generateAlerts(
         }
       }
 
-      // --- 浮盈/浮亏 ---
+      // --- 浮盈/浮亏（基础 priority + DTE 修正，≥75%除外） ---
       const pnlPct = pnlProgress(pos)
       if (pnlPct !== null) {
         if (pnlPct <= -200) {
+          const pri = applyDTECorrection(1, dte, otm)
           alerts.push({
             level: 'red', target: pos.id,
             message: `${pos.ticker} $${pos.strikePrice}P 浮亏超200%权利金(${pnlPct.toFixed(0)}%)，建议止损决策`,
-            priority: 1,
+            priority: pri,
           })
         } else if (pnlPct <= -100) {
+          const pri = applyDTECorrection(2, dte, otm)
           alerts.push({
             level: 'orange', target: pos.id,
             message: `${pos.ticker} $${pos.strikePrice}P 浮亏超过权利金(${pnlPct.toFixed(0)}%)，进入防守区`,
-            priority: 2,
+            priority: pri,
           })
         } else if (pnlPct >= 75) {
+          // 浮盈 ≥75%: P3 不变，不受 DTE 修正
           alerts.push({
             level: 'yellow', target: pos.id,
             message: `${pos.ticker} $${pos.strikePrice}P 已盈利${pnlPct.toFixed(0)}%，建议平仓释放BPR`,
             priority: 3,
           })
         } else if (pnlPct >= 50) {
+          const pri = applyDTECorrection(3, dte, otm)
           alerts.push({
             level: 'green', target: pos.id,
             message: `${pos.ticker} $${pos.strikePrice}P 已盈利${pnlPct.toFixed(0)}%，可考虑平仓锁利`,
-            priority: 3,
+            priority: pri,
           })
         }
       }
@@ -447,31 +479,34 @@ export function generateAlerts(
 
     // ======== Long Call / PMCC (leap_call, buy_call) ========
     if (pos.type === 'leap_call' || pos.type === 'buy_call') {
-      // --- Delta ---
+      const dte = pos.expirationDate ? daysUntilExpiry(pos.expirationDate) : null
+      const otm = getIsOTM(pos)
+
       const delta = getDelta(pos)
       if (delta !== null) {
         const absDelta = Math.abs(delta)
-        let level: AlertLevel, msg: string
-        let pri: 1 | 2 | 3 = 2 // Delta 异常 → P2
+        let level: AlertLevel, msg: string, basePri: 1 | 2 | 3
 
         if (absDelta > 0.9) {
           level = 'yellow'
           msg = `${pos.ticker} Delta ${delta.toFixed(2)}，深度实值，时间价值极低，考虑换月`
+          basePri = 2
         } else if (absDelta < 0.6) {
           level = 'yellow'
           msg = `${pos.ticker} Delta ${delta.toFixed(2)}，偏低，正股替代效果减弱`
+          basePri = 2
         } else {
           level = 'green'
           msg = `${pos.ticker} Delta ${delta.toFixed(2)}，健康，正股替代效果良好`
-          pri = 3
+          basePri = 3
         }
+        const pri = applyDTECorrection(basePri, dte, otm)
         alerts.push({ level, target: pos.id, message: msg, priority: pri })
       }
     }
 
-    // ======== Cost Dilution (leap_call, stock) ========
+    // ======== Cost Dilution (leap_call, stock) — 不受 DTE 修正 ========
     if (pos.type === 'leap_call' || pos.type === 'stock') {
-      // 摊薄进度为 0% 且持仓超过 14 天
       const dilPct = dilutionPercent(pos, getCostRecords)
       const heldDays = daysSince(pos.openDate)
 

@@ -283,6 +283,7 @@ function App() {
             cashBalance={store.cashBalance}
             getCostRecordsForPosition={store.getCostRecordsForPosition}
             onNavigateToPosition={handleNavigateToPosition}
+            onSetCashBalance={store.setCashBalance}
           />
         )}
       </main>
