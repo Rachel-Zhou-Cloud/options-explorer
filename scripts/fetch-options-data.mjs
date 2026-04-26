@@ -82,14 +82,16 @@ function round2(n) { return Math.round(n * 100) / 100; }
 function round4(n) { return Math.round(n * 10000) / 10000; }
 
 /**
- * Check if a date string is a standard monthly options expiry (3rd Friday of the month).
- * US equity options standard monthly expiry = 3rd Friday, which falls on days 15–21.
+ * Check if a date is likely a standard monthly options expiry.
+ * Standard monthly = 3rd Friday of the month (days 15–21, Friday).
+ * Yahoo sometimes reports quarterly months (Mar/Jun/Sep/Dec) as Thursday
+ * (AM settlement), so we also accept Thursday in the same date range.
  */
 function isStandardMonthly(dateStr) {
   const d = new Date(dateStr);
-  const dayOfWeek = d.getUTCDay();   // 5 = Friday
+  const dayOfWeek = d.getUTCDay();   // 4 = Thursday, 5 = Friday
   const dayOfMonth = d.getUTCDate();
-  return dayOfWeek === 5 && dayOfMonth >= 15 && dayOfMonth <= 21;
+  return (dayOfWeek === 5 || dayOfWeek === 4) && dayOfMonth >= 14 && dayOfMonth <= 21;
 }
 
 /**
