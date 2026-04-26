@@ -154,8 +154,10 @@ async function fetchOptionsForTicker(ticker, currentPrice) {
     if (!firstResult) return chainsByExpiry;
 
     const expiryDates = firstResult.expirationDates || [];
+    log(`  Yahoo expiry dates (${expiryDates.length} total): ${expiryDates.map(dateToStr).join(', ')}`);
     const { weekly, monthly, leap } = selectExpiryDates(expiryDates);
     const allExpiries = [...weekly, ...monthly, ...leap];
+    log(`  Selected: weekly=[${weekly.map(dateToStr)}] monthly=[${monthly.map(dateToStr)}] leap=[${leap.map(dateToStr)}]`);
 
     // Process the first expiry's data (included in the initial response)
     if (firstResult.options && firstResult.options.length > 0) {
