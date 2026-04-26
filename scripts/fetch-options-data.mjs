@@ -18,8 +18,11 @@ const WATCHLIST_PATH = path.join(ROOT, 'data', 'watchlist.json');
 const OUTPUT_PATH = path.join(ROOT, 'public', 'data', 'market-data.json');
 
 // Config
-const MAX_EXPIRY_DATES = 3;          // Fetch up to 3 nearest expiry dates
-const STRIKE_RANGE_PCT = 0.20;       // ±20% of current price
+const MAX_NEAR_EXPIRIES = 3;         // Nearest 3 expiry dates (weeklies/monthlies)
+const MAX_LEAP_EXPIRIES = 3;         // Up to 3 LEAP dates (90+ days out)
+const STRIKE_RANGE_PCT = 0.20;       // ±20% of current price (near-term)
+const STRIKE_RANGE_LEAP_PCT = 0.30;  // ±30% for LEAPs (wider range)
+const LEAP_THRESHOLD_DAYS = 90;      // Expiry dates 90+ days out are considered LEAP
 const DELAY_BETWEEN_TICKERS_MS = 1000;
 const DELAY_BETWEEN_EXPIRIES_MS = 500;
 const QUOTE_TIMEOUT_MS = 10000;
@@ -57,9 +60,9 @@ async function fetchQuote(ticker) {
   }
 }
 
-function filterStrikes(contracts, currentPrice) {
-  const lo = currentPrice * (1 - STRIKE_RANGE_PCT);
-  const hi = currentPrice * (1 + STRIKE_RANGE_PCT);
+function filterStrikes(contracts, currentPrice, rangePct) {
+  const lo = currentPrice * (1 - rangePct);
+  const hi = currentPrice * (1 + rangePct);
   return contracts
     .filter(c => c.strike >= lo && c.strike <= hi)
     .map(c => ({
@@ -76,6 +79,32 @@ function filterStrikes(contracts, currentPrice) {
 function round2(n) { return Math.round(n * 100) / 100; }
 function round4(n) { return Math.round(n * 10000) / 10000; }
 
+/**
+ * Select a mix of near-term and LEAP expiry dates from available dates.
+ * - Near-term: up to MAX_NEAR_EXPIRIES (nearest weeklies/monthlies)
+ * - LEAP: up to MAX_LEAP_EXPIRIES from dates 90+ days out
+ */
+function selectExpiryDates(expiryDates) {
+  const now = Date.now();
+  const leapCutoff = now + LEAP_THRESHOLD_DAYS * 86400000;
+
+  const near = [];
+  const leap = [];
+
+  for (const d of expiryDates) {
+    const ts = new Date(d).getTime();
+    if (isNaN(ts)) continue;
+    if (ts < leapCutoff) {
+      if (near.length < MAX_NEAR_EXPIRIES) near.push(d);
+    } else {
+      if (leap.length < MAX_LEAP_EXPIRIES) leap.push(d);
+    }
+    if (near.length >= MAX_NEAR_EXPIRIES && leap.length >= MAX_LEAP_EXPIRIES) break;
+  }
+
+  return { near, leap };
+}
+
 async function fetchOptionsForTicker(ticker, currentPrice) {
   const chainsByExpiry = {};
 
@@ -85,35 +114,39 @@ async function fetchOptionsForTicker(ticker, currentPrice) {
     if (!firstResult) return chainsByExpiry;
 
     const expiryDates = firstResult.expirationDates || [];
-    const expiryList = expiryDates.slice(0, MAX_EXPIRY_DATES);
+    const { near, leap } = selectExpiryDates(expiryDates);
+    const allExpiries = [...near, ...leap];
 
     // Process the first expiry's data (included in the initial response)
     if (firstResult.options && firstResult.options.length > 0) {
       const opt = firstResult.options[0];
       const expiryStr = dateToStr(opt.expirationDate);
+      const rangePct = isLeapDate(opt.expirationDate) ? STRIKE_RANGE_LEAP_PCT : STRIKE_RANGE_PCT;
       chainsByExpiry[expiryStr] = {
-        calls: filterStrikes(opt.calls || [], currentPrice),
-        puts: filterStrikes(opt.puts || [], currentPrice),
+        calls: filterStrikes(opt.calls || [], currentPrice, rangePct),
+        puts: filterStrikes(opt.puts || [], currentPrice, rangePct),
       };
     }
 
-    // Fetch remaining expiry dates
-    for (let i = 1; i < expiryList.length; i++) {
+    // Fetch remaining selected expiry dates
+    for (let i = 0; i < allExpiries.length; i++) {
+      const expiryDate = allExpiries[i];
+      const expiryStr = dateToStr(expiryDate);
+      if (chainsByExpiry[expiryStr]) continue; // Already fetched (first result)
       await sleep(DELAY_BETWEEN_EXPIRIES_MS);
       try {
-        const expiryDate = expiryList[i];
-        // yahoo-finance2 v3 accepts Date object for date param
         const result = await yahooFinance.options(ticker, { date: new Date(expiryDate) });
         if (result && result.options && result.options.length > 0) {
           const opt = result.options[0];
-          const expiryStr = dateToStr(opt.expirationDate);
-          chainsByExpiry[expiryStr] = {
-            calls: filterStrikes(opt.calls || [], currentPrice),
-            puts: filterStrikes(opt.puts || [], currentPrice),
+          const str = dateToStr(opt.expirationDate);
+          const rangePct = isLeapDate(opt.expirationDate) ? STRIKE_RANGE_LEAP_PCT : STRIKE_RANGE_PCT;
+          chainsByExpiry[str] = {
+            calls: filterStrikes(opt.calls || [], currentPrice, rangePct),
+            puts: filterStrikes(opt.puts || [], currentPrice, rangePct),
           };
         }
       } catch (err) {
-        log(`  [WARN] Options expiry #${i} failed for ${ticker}: ${err.message}`);
+        log(`  [WARN] Options expiry ${expiryStr} failed for ${ticker}: ${err.message}`);
       }
     }
   } catch (err) {
@@ -121,6 +154,11 @@ async function fetchOptionsForTicker(ticker, currentPrice) {
   }
 
   return chainsByExpiry;
+}
+
+function isLeapDate(d) {
+  const ts = (d instanceof Date ? d : new Date(d)).getTime();
+  return ts - Date.now() > LEAP_THRESHOLD_DAYS * 86400000;
 }
 
 function dateToStr(d) {
@@ -159,7 +197,7 @@ async function main() {
       const expiryCount = Object.keys(chains).length;
       if (expiryCount > 0) {
         result.options[ticker] = chains;
-        log(`  OK: $${quote.price} | ${expiryCount} expiry dates`);
+        log(`  OK: $${quote.price} | ${expiryCount} expiries [${Object.keys(chains).sort().join(', ')}]`);
       } else {
         log(`  OK: $${quote.price} | no options data`);
       }
