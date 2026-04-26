@@ -103,13 +103,30 @@ function App() {
     const dte = position.expirationDate
       ? Math.max(1, Math.round((new Date(position.expirationDate).getTime() - Date.now()) / 86400000))
       : undefined
-    setCalculatorPrefill({
+
+    const prefill: CalculatorPrefill = {
       ticker: position.ticker,
       strikePrice: position.strikePrice,
       underlyingPrice: position.currentPrice,
       daysToExpiry: dte,
       premium: position.premium,
-    })
+    }
+
+    // Sell Put → 进入 Roll 分析模式 (自动带入原仓上下文)
+    if (position.type === 'sell_put' && position.expirationDate && position.currentPremium !== undefined) {
+      prefill.rollFrom = {
+        positionId: position.id,
+        ticker: position.ticker,
+        oldStrike: position.strikePrice,
+        oldExpirationDate: position.expirationDate,
+        oldPremium: position.premium,
+        currentPremium: position.currentPremium,
+        currentPrice: position.currentPrice,
+        quantity: position.quantity,
+      }
+    }
+
+    setCalculatorPrefill(prefill)
     setActiveTab('calculator')
   }
 
