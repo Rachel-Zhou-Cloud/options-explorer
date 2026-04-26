@@ -82,10 +82,24 @@ function round2(n) { return Math.round(n * 100) / 100; }
 function round4(n) { return Math.round(n * 10000) / 10000; }
 
 /**
+ * Check if a date string is a standard monthly options expiry (3rd Friday of the month).
+ * US equity options standard monthly expiry = 3rd Friday, which falls on days 15–21.
+ */
+function isStandardMonthly(dateStr) {
+  const d = new Date(dateStr);
+  const dayOfWeek = d.getUTCDay();   // 5 = Friday
+  const dayOfMonth = d.getUTCDate();
+  return dayOfWeek === 5 && dayOfMonth >= 15 && dayOfMonth <= 21;
+}
+
+/**
  * Select expiry dates in 3 tiers to avoid coverage gaps:
  * - Weekly:  < 14 days out  (up to 2 — nearest weeklies)
- * - Monthly: 14–90 days out (up to 3 — covers Jun/Jul/Aug monthlies)
+ * - Monthly: 14–90 days out (standard monthly expiries only — 3rd Friday of each month)
  * - LEAP:    90+ days out   (up to 3 — far-out dates)
+ *
+ * By filtering for standard monthlies, we skip the many weekly dates (May 22, May 29, etc.)
+ * and directly get the key dates like May 15, Jun 19, Jul 17.
  */
 function selectExpiryDates(expiryDates) {
   const now = Date.now();
@@ -96,17 +110,36 @@ function selectExpiryDates(expiryDates) {
   const monthly = [];
   const leap = [];
 
+  // First pass: pick standard monthly expiries in the 14–90 day range
   for (const d of expiryDates) {
     const ts = new Date(d).getTime();
     if (isNaN(ts)) continue;
     if (ts < weeklyCutoff) {
       if (weekly.length < MAX_WEEKLY_EXPIRIES) weekly.push(d);
     } else if (ts < leapCutoff) {
-      if (monthly.length < MAX_MONTHLY_EXPIRIES) monthly.push(d);
+      // Only pick standard monthly expiry dates (3rd Friday)
+      if (monthly.length < MAX_MONTHLY_EXPIRIES && isStandardMonthly(d)) {
+        monthly.push(d);
+      }
     } else {
       if (leap.length < MAX_LEAP_EXPIRIES) leap.push(d);
     }
     if (weekly.length >= MAX_WEEKLY_EXPIRIES && monthly.length >= MAX_MONTHLY_EXPIRIES && leap.length >= MAX_LEAP_EXPIRIES) break;
+  }
+
+  // Fallback: if no standard monthlies found, pick any dates in the range (one per calendar month)
+  if (monthly.length === 0) {
+    const monthsSeen = new Set();
+    for (const d of expiryDates) {
+      if (monthly.length >= MAX_MONTHLY_EXPIRIES) break;
+      const ts = new Date(d).getTime();
+      if (isNaN(ts) || ts < weeklyCutoff || ts >= leapCutoff) continue;
+      const monthKey = d.slice(0, 7);
+      if (!monthsSeen.has(monthKey)) {
+        monthsSeen.add(monthKey);
+        monthly.push(d);
+      }
+    }
   }
 
   return { weekly, monthly, leap };
