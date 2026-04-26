@@ -1,4 +1,4 @@
-const CACHE_NAME = 'options-explorer-v6';
+const CACHE_NAME = 'options-explorer-v7';
 const BASE_PATH = '/options-explorer/';
 
 // Install: cache all critical assets
@@ -28,7 +28,7 @@ self.addEventListener('activate', (event) => {
   self.clients.claim();
 });
 
-// Fetch: network-first for HTML, cache-first for assets
+// Fetch: network-first for HTML, stale-while-revalidate for assets
 self.addEventListener('fetch', (event) => {
   const { request } = event;
   const url = new URL(request.url);
@@ -50,7 +50,7 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // For market data (JSON): network first, cache fallback (always want freshest data)
+  // For market data (JSON): network first, cache fallback
   if (url.pathname.includes('/data/')) {
     event.respondWith(
       fetch(request)
@@ -64,15 +64,18 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // For assets (JS, CSS, images): cache first, fallback to network
+  // For assets (JS, CSS, images): stale-while-revalidate
+  // Serve cached copy instantly, fetch fresh in background for next visit
   if (url.pathname.includes('/assets/') || url.pathname.endsWith('.png')) {
     event.respondWith(
-      caches.match(request).then((cached) => {
-        if (cached) return cached;
-        return fetch(request).then((response) => {
-          const clone = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
-          return response;
+      caches.open(CACHE_NAME).then((cache) => {
+        return cache.match(request).then((cached) => {
+          const fetchPromise = fetch(request).then((response) => {
+            cache.put(request, response.clone());
+            return response;
+          });
+          // Return cached immediately if available, else wait for network
+          return cached ?? fetchPromise;
         });
       })
     );
