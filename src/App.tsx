@@ -3,22 +3,22 @@ import { CalculatorTab, type CalculatorPrefill } from '@/components/CalculatorTa
 import { PositionsTab } from '@/components/PositionsTab'
 import { PerformanceTab } from '@/components/PerformanceTab'
 import { CostAnalysisTab } from '@/components/CostAnalysisTab'
-import { RiskControlTab } from '@/components/RiskControlTab'
+import { TodayTab } from '@/components/TodayTab'
 import { DecisionCenter } from '@/components/DecisionCenter'
 import { ToastContainer, showToast } from '@/components/ui/toast'
 import { useStore } from '@/store/useStore'
 import type { Position } from '@/types'
-import { Calculator, Layers, Trophy, PiggyBank, Shield, Settings, X, Wifi, Copy, LayoutDashboard } from 'lucide-react'
+import { Calculator, Layers, Trophy, PiggyBank, CalendarDays, Settings, X, Wifi, Copy, LayoutDashboard } from 'lucide-react'
 import { fetchStaticMarketData, getQuoteFromStaticData, matchOptionData, formatDataAge } from '@/lib/marketData'
 
-type TabId = 'calculator' | 'positions' | 'cost' | 'performance' | 'risk'
+type TabId = 'calculator' | 'positions' | 'cost' | 'performance' | 'today'
 
 const tabs: { id: TabId; label: string; icon: typeof Calculator }[] = [
   { id: 'calculator', label: '计算器', icon: Calculator },
   { id: 'positions', label: '持仓', icon: Layers },
   { id: 'cost', label: '成本', icon: PiggyBank },
   { id: 'performance', label: '绩效', icon: Trophy },
-  { id: 'risk', label: '风控', icon: Shield },
+  { id: 'today', label: '今日', icon: CalendarDays },
 ]
 
 function App() {
@@ -28,6 +28,7 @@ function App() {
   const [apiKeyInput, setApiKeyInput] = useState('')
   const [prefillPosition, setPrefillPosition] = useState<Partial<Position> | null>(null)
   const [calculatorPrefill, setCalculatorPrefill] = useState<CalculatorPrefill | null>(null)
+  const [highlightPositionId, setHighlightPositionId] = useState<string | null>(null)
   const store = useStore()
 
   // Ref to always have latest positions for async callbacks
@@ -128,6 +129,11 @@ function App() {
 
     setCalculatorPrefill(prefill)
     setActiveTab('calculator')
+  }
+
+  const handleNavigateToPosition = (positionId: string) => {
+    setHighlightPositionId(positionId)
+    setActiveTab('positions')
   }
 
   return (
@@ -249,6 +255,8 @@ function App() {
             cashBalance={store.cashBalance}
             getCostRecordsForPosition={store.getCostRecordsForPosition}
             onOpenCalculator={handleOpenCalculatorFromPosition}
+            highlightPositionId={highlightPositionId}
+            onClearHighlight={() => setHighlightPositionId(null)}
           />
         )}
         {activeTab === 'cost' && (
@@ -269,11 +277,12 @@ function App() {
             cashBalance={store.cashBalance}
           />
         )}
-        {activeTab === 'risk' && (
-          <RiskControlTab
+        {activeTab === 'today' && (
+          <TodayTab
             positions={store.positions}
             cashBalance={store.cashBalance}
-            onSetCashBalance={store.setCashBalance}
+            getCostRecordsForPosition={store.getCostRecordsForPosition}
+            onNavigateToPosition={handleNavigateToPosition}
           />
         )}
       </main>

@@ -23,11 +23,14 @@ interface PositionsTabProps {
   cashBalance: number
   getCostRecordsForPosition: (positionId: string) => CostRecord[]
   onOpenCalculator?: (position: Position) => void
+  highlightPositionId?: string | null
+  onClearHighlight?: () => void
 }
 
 export function PositionsTab({
   positions, onAdd, onClose, onUpdate, onDelete, apiKey, prefill, onClearPrefill,
   cashBalance, getCostRecordsForPosition, onOpenCalculator,
+  highlightPositionId, onClearHighlight,
 }: PositionsTabProps) {
   const [showAddForm, setShowAddForm] = useState(!!prefill)
   const [showCsvImport, setShowCsvImport] = useState(false)
@@ -38,6 +41,23 @@ export function PositionsTab({
   useEffect(() => {
     fetchStaticMarketData().then(data => { if (data) setMarketData(data) })
   }, [])
+
+  // Scroll to highlighted position when navigating from Today Tab
+  useEffect(() => {
+    if (!highlightPositionId) return
+    const timer = setTimeout(() => {
+      const el = document.getElementById(`pos-${highlightPositionId}`)
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        el.classList.add('ring-2', 'ring-primary', 'ring-offset-2')
+        setTimeout(() => {
+          el.classList.remove('ring-2', 'ring-primary', 'ring-offset-2')
+        }, 2000)
+      }
+      onClearHighlight?.()
+    }, 100)
+    return () => clearTimeout(timer)
+  }, [highlightPositionId, onClearHighlight])
 
   // Build option data map for each position
   const optionDataMap = new Map<string, OptionContract | null>()
@@ -351,10 +371,10 @@ export function PositionsTab({
           subtitle="Buy/Custom"
         >
           {otherPositions.map(pos => (
-            <PositionCard key={pos.id} position={pos} onClose={onClose} onUpdate={onUpdate} onDelete={onDelete}
+            <div key={pos.id} id={'pos-' + pos.id}><PositionCard position={pos} onClose={onClose} onUpdate={onUpdate} onDelete={onDelete}
               optionChainData={optionDataMap.get(pos.id)} dataTimestamp={marketData?.timestamp}
               advice={adviceMap.get(pos.id)} onOpenCalculator={onOpenCalculator}
-              alertEngineAlerts={allAlerts} />
+              alertEngineAlerts={allAlerts} /></div>
           ))}
         </Section>
       )}

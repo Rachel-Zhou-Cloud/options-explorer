@@ -28,6 +28,10 @@ export interface Position {
   closeDate?: string
   /** Close premium (for options) or close price (for stocks) */
   closePremium?: number
+  /** Computed delta (option greek, populated by enrichment) */
+  delta?: number
+  /** Computed theta (option greek, populated by enrichment) */
+  theta?: number
   /** Linked parent position ID (e.g. sell_call linked to a LEAP/stock) */
   linkedPositionId?: string
   /** Custom type name when type is 'custom' */
