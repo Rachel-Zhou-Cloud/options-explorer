@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { calculateAnnualizedReturn, formatPercent, formatCurrency } from '@/lib/calculations'
@@ -7,12 +7,22 @@ import { Calculator, TrendingUp, Shield, Info, Search, PlusCircle } from 'lucide
 import { fetchSingleQuote, fetchStaticMarketData, getQuoteFromStaticData } from '@/lib/marketData'
 import { showToast } from '@/components/ui/toast'
 
+export interface CalculatorPrefill {
+  ticker?: string
+  strikePrice?: number
+  underlyingPrice?: number
+  daysToExpiry?: number
+  premium?: number
+}
+
 interface CalculatorTabProps {
   apiKey: string
   onCreatePosition?: (prefill: Partial<Position>) => void
+  prefill?: CalculatorPrefill | null
+  onClearPrefill?: () => void
 }
 
-export function CalculatorTab({ apiKey, onCreatePosition }: CalculatorTabProps) {
+export function CalculatorTab({ apiKey, onCreatePosition, prefill, onClearPrefill }: CalculatorTabProps) {
   const [ticker, setTicker] = useState('')
   const [strikePrice, setStrikePrice] = useState('')
   const [underlyingPrice, setUnderlyingPrice] = useState('')
@@ -21,6 +31,18 @@ export function CalculatorTab({ apiKey, onCreatePosition }: CalculatorTabProps) 
   const [result, setResult] = useState<CalculatorResult | null>(null)
   const [showInfo, setShowInfo] = useState(false)
   const [fetching, setFetching] = useState(false)
+
+  // Accept prefill from PositionCard "快速计算" button
+  useEffect(() => {
+    if (!prefill) return
+    if (prefill.ticker) setTicker(prefill.ticker)
+    if (prefill.strikePrice !== undefined) setStrikePrice(prefill.strikePrice.toString())
+    if (prefill.underlyingPrice !== undefined) setUnderlyingPrice(prefill.underlyingPrice.toString())
+    if (prefill.daysToExpiry !== undefined) setDaysToExpiry(prefill.daysToExpiry.toString())
+    if (prefill.premium !== undefined) setPremium(prefill.premium.toString())
+    setResult(null)
+    onClearPrefill?.()
+  }, [prefill, onClearPrefill])
 
   const handleFetchPrice = async () => {
     if (!ticker.trim()) {

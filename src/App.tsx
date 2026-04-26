@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { CalculatorTab } from '@/components/CalculatorTab'
+import { CalculatorTab, type CalculatorPrefill } from '@/components/CalculatorTab'
 import { PositionsTab } from '@/components/PositionsTab'
 import { PerformanceTab } from '@/components/PerformanceTab'
 import { CostAnalysisTab } from '@/components/CostAnalysisTab'
@@ -27,6 +27,7 @@ function App() {
   const [showDashboard, setShowDashboard] = useState(false)
   const [apiKeyInput, setApiKeyInput] = useState('')
   const [prefillPosition, setPrefillPosition] = useState<Partial<Position> | null>(null)
+  const [calculatorPrefill, setCalculatorPrefill] = useState<CalculatorPrefill | null>(null)
   const store = useStore()
 
   // Ref to always have latest positions for async callbacks
@@ -96,6 +97,20 @@ function App() {
   const handleCreateFromCalculator = (prefill: Partial<Position>) => {
     setPrefillPosition(prefill)
     setActiveTab('positions')
+  }
+
+  const handleOpenCalculatorFromPosition = (position: Position) => {
+    const dte = position.expirationDate
+      ? Math.max(1, Math.round((new Date(position.expirationDate).getTime() - Date.now()) / 86400000))
+      : undefined
+    setCalculatorPrefill({
+      ticker: position.ticker,
+      strikePrice: position.strikePrice,
+      underlyingPrice: position.currentPrice,
+      daysToExpiry: dte,
+      premium: position.premium,
+    })
+    setActiveTab('calculator')
   }
 
   return (
@@ -197,7 +212,12 @@ function App() {
       {/* Content */}
       <main className="flex-1 overflow-y-auto px-4 pt-4 pb-20">
         {activeTab === 'calculator' && (
-          <CalculatorTab apiKey={store.apiKey} onCreatePosition={handleCreateFromCalculator} />
+          <CalculatorTab
+            apiKey={store.apiKey}
+            onCreatePosition={handleCreateFromCalculator}
+            prefill={calculatorPrefill}
+            onClearPrefill={() => setCalculatorPrefill(null)}
+          />
         )}
         {activeTab === 'positions' && (
           <PositionsTab
@@ -209,6 +229,9 @@ function App() {
             apiKey={store.apiKey}
             prefill={prefillPosition}
             onClearPrefill={() => setPrefillPosition(null)}
+            cashBalance={store.cashBalance}
+            getCostRecordsForPosition={store.getCostRecordsForPosition}
+            onOpenCalculator={handleOpenCalculatorFromPosition}
           />
         )}
         {activeTab === 'cost' && (

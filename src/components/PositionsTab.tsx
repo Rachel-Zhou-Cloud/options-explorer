@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react'
-import type { Position, StaticMarketData, OptionContract } from '@/types'
+import { useState, useEffect, useMemo } from 'react'
+import type { Position, CostRecord, StaticMarketData, OptionContract } from '@/types'
 import { daysUntilExpiry } from '@/lib/calculations'
 import { PositionCard } from '@/components/PositionCard'
 import { AddPositionForm } from '@/components/AddPositionForm'
@@ -8,6 +8,7 @@ import { Plus, Layers, TrendingUp as TrendingUpIcon, BarChart3, RefreshCw, Arrow
 import { fetchQuotes, fetchStaticMarketData, getQuoteFromStaticData, matchOptionData, formatDataAge, isDataFresh } from '@/lib/marketData'
 import { showToast } from '@/components/ui/toast'
 import { CsvImport } from '@/components/CsvImport'
+import { evaluatePortfolio } from '@/lib/decisionEngine'
 
 interface PositionsTabProps {
   positions: Position[]
@@ -18,9 +19,15 @@ interface PositionsTabProps {
   apiKey: string
   prefill?: Partial<Position> | null
   onClearPrefill?: () => void
+  cashBalance: number
+  getCostRecordsForPosition: (positionId: string) => CostRecord[]
+  onOpenCalculator?: (position: Position) => void
 }
 
-export function PositionsTab({ positions, onAdd, onClose, onUpdate, onDelete, apiKey, prefill, onClearPrefill }: PositionsTabProps) {
+export function PositionsTab({
+  positions, onAdd, onClose, onUpdate, onDelete, apiKey, prefill, onClearPrefill,
+  cashBalance, getCostRecordsForPosition, onOpenCalculator,
+}: PositionsTabProps) {
   const [showAddForm, setShowAddForm] = useState(!!prefill)
   const [showCsvImport, setShowCsvImport] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
@@ -38,6 +45,12 @@ export function PositionsTab({ positions, onAdd, onClose, onUpdate, onDelete, ap
       optionDataMap.set(pos.id, matchOptionData(pos, marketData))
     }
   }
+
+  // Run decision engine
+  const adviceMap = useMemo(
+    () => evaluatePortfolio(positions, marketData, cashBalance, getCostRecordsForPosition),
+    [positions, marketData, cashBalance, getCostRecordsForPosition],
+  )
 
   // Categorize positions
   const leapCalls = positions.filter(p => {
@@ -214,7 +227,7 @@ export function PositionsTab({ positions, onAdd, onClose, onUpdate, onDelete, ap
           subtitle=">90天长期看涨"
         >
           {leapCalls.map(pos => (
-            <PositionCard key={pos.id} position={pos} onClose={onClose} onUpdate={onUpdate} onDelete={onDelete} optionChainData={optionDataMap.get(pos.id)} dataTimestamp={marketData?.timestamp} />
+            <PositionCard key={pos.id} position={pos} onClose={onClose} onUpdate={onUpdate} onDelete={onDelete} optionChainData={optionDataMap.get(pos.id)} dataTimestamp={marketData?.timestamp} advice={adviceMap.get(pos.id)} onOpenCalculator={onOpenCalculator} />
           ))}
         </Section>
       )}
@@ -228,7 +241,7 @@ export function PositionsTab({ positions, onAdd, onClose, onUpdate, onDelete, ap
           subtitle="原LEAP已<90天"
         >
           {shortTermCalls.map(pos => (
-            <PositionCard key={pos.id} position={pos} onClose={onClose} onUpdate={onUpdate} onDelete={onDelete} optionChainData={optionDataMap.get(pos.id)} dataTimestamp={marketData?.timestamp} />
+            <PositionCard key={pos.id} position={pos} onClose={onClose} onUpdate={onUpdate} onDelete={onDelete} optionChainData={optionDataMap.get(pos.id)} dataTimestamp={marketData?.timestamp} advice={adviceMap.get(pos.id)} onOpenCalculator={onOpenCalculator} />
           ))}
         </Section>
       )}
@@ -242,7 +255,7 @@ export function PositionsTab({ positions, onAdd, onClose, onUpdate, onDelete, ap
           subtitle="股票持仓"
         >
           {stocks.map(pos => (
-            <PositionCard key={pos.id} position={pos} onClose={onClose} onUpdate={onUpdate} onDelete={onDelete} optionChainData={optionDataMap.get(pos.id)} dataTimestamp={marketData?.timestamp} />
+            <PositionCard key={pos.id} position={pos} onClose={onClose} onUpdate={onUpdate} onDelete={onDelete} optionChainData={optionDataMap.get(pos.id)} dataTimestamp={marketData?.timestamp} advice={adviceMap.get(pos.id)} onOpenCalculator={onOpenCalculator} />
           ))}
         </Section>
       )}
@@ -256,7 +269,7 @@ export function PositionsTab({ positions, onAdd, onClose, onUpdate, onDelete, ap
           subtitle="按到期日排序"
         >
           {sellCalls.map(pos => (
-            <PositionCard key={pos.id} position={pos} onClose={onClose} onUpdate={onUpdate} onDelete={onDelete} optionChainData={optionDataMap.get(pos.id)} dataTimestamp={marketData?.timestamp} />
+            <PositionCard key={pos.id} position={pos} onClose={onClose} onUpdate={onUpdate} onDelete={onDelete} optionChainData={optionDataMap.get(pos.id)} dataTimestamp={marketData?.timestamp} advice={adviceMap.get(pos.id)} onOpenCalculator={onOpenCalculator} />
           ))}
         </Section>
       )}
@@ -270,7 +283,7 @@ export function PositionsTab({ positions, onAdd, onClose, onUpdate, onDelete, ap
           subtitle="按到期日排序"
         >
           {sellPuts.map(pos => (
-            <PositionCard key={pos.id} position={pos} onClose={onClose} onUpdate={onUpdate} onDelete={onDelete} optionChainData={optionDataMap.get(pos.id)} dataTimestamp={marketData?.timestamp} />
+            <PositionCard key={pos.id} position={pos} onClose={onClose} onUpdate={onUpdate} onDelete={onDelete} optionChainData={optionDataMap.get(pos.id)} dataTimestamp={marketData?.timestamp} advice={adviceMap.get(pos.id)} onOpenCalculator={onOpenCalculator} />
           ))}
         </Section>
       )}
@@ -284,7 +297,7 @@ export function PositionsTab({ positions, onAdd, onClose, onUpdate, onDelete, ap
           subtitle="Buy/Custom"
         >
           {otherPositions.map(pos => (
-            <PositionCard key={pos.id} position={pos} onClose={onClose} onUpdate={onUpdate} onDelete={onDelete} optionChainData={optionDataMap.get(pos.id)} dataTimestamp={marketData?.timestamp} />
+            <PositionCard key={pos.id} position={pos} onClose={onClose} onUpdate={onUpdate} onDelete={onDelete} optionChainData={optionDataMap.get(pos.id)} dataTimestamp={marketData?.timestamp} advice={adviceMap.get(pos.id)} onOpenCalculator={onOpenCalculator} />
           ))}
         </Section>
       )}

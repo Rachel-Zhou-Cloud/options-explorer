@@ -12,8 +12,9 @@ import {
   estimateGreeks,
   type OptionSide,
 } from '@/lib/calculations'
-import { AlertTriangle, TrendingUp, Target, Clock, X, ChevronDown, ChevronUp, Pencil, Activity } from 'lucide-react'
+import { AlertTriangle, TrendingUp, Target, Clock, X, ChevronDown, ChevronUp, Pencil, Activity, Calculator } from 'lucide-react'
 import { formatDataAge } from '@/lib/marketData'
+import type { PositionAdvice } from '@/lib/decisionEngine'
 
 interface PositionCardProps {
   position: Position
@@ -22,6 +23,8 @@ interface PositionCardProps {
   onDelete: (id: string) => void
   optionChainData?: OptionContract | null
   dataTimestamp?: string
+  advice?: PositionAdvice
+  onOpenCalculator?: (position: Position) => void
 }
 
 const TYPE_LABELS: Record<string, string> = {
@@ -64,7 +67,9 @@ function calcUnrealizedPnl(pos: Position): { pnl: number; pnlPercent: number } |
 const isSellType = (t: PositionType) => t === 'sell_put' || t === 'sell_call'
 const isOptionType = (t: PositionType) => t !== 'stock'
 
-export function PositionCard({ position, onClose, onUpdate, onDelete, optionChainData, dataTimestamp }: PositionCardProps) {
+export function PositionCard({
+  position, onClose, onUpdate, onDelete, optionChainData, dataTimestamp, advice, onOpenCalculator,
+}: PositionCardProps) {
   const [expanded, setExpanded] = useState(false)
   const [showCloseForm, setShowCloseForm] = useState(false)
   const [closePremium, setClosePremium] = useState('')
@@ -105,14 +110,29 @@ export function PositionCard({ position, onClose, onUpdate, onDelete, optionChai
       )
     : null
 
-  const alerts: { icon: typeof AlertTriangle; label: string; className: string }[] = []
-  if (expiringThisWeek) alerts.push({ icon: Clock, label: `${dte}d`, className: 'badge-warning' })
-  if (profitOver70) alerts.push({ icon: TrendingUp, label: `${sellProfitPercent?.toFixed(0)}%`, className: 'badge-profit' })
-  if (nearStrike) alerts.push({ icon: Target, label: '近行权价', className: 'badge-loss' })
+  // Decision engine tags (preferred) or fallback to hardcoded alerts
+  const TAG_CLASS = { red: 'badge-loss', yellow: 'badge-warning', green: 'badge-profit' } as const
+  const adviceTags = advice?.tags ?? []
 
-  const borderClass = expiringThisWeek ? 'border-warning/40'
-    : profitOver70 ? 'border-profit/40'
-    : nearStrike ? 'border-loss/40' : ''
+  const alerts: { icon: typeof AlertTriangle; label: string; className: string }[] = adviceTags.length > 0
+    ? adviceTags.map(t => ({
+        icon: t.level === 'red' ? AlertTriangle : t.level === 'yellow' ? Clock : TrendingUp,
+        label: t.label,
+        className: TAG_CLASS[t.level],
+      }))
+    : (() => {
+        const fallback: { icon: typeof AlertTriangle; label: string; className: string }[] = []
+        if (expiringThisWeek) fallback.push({ icon: Clock, label: `${dte}d`, className: 'badge-warning' })
+        if (profitOver70) fallback.push({ icon: TrendingUp, label: `${sellProfitPercent?.toFixed(0)}%`, className: 'badge-profit' })
+        if (nearStrike) fallback.push({ icon: Target, label: '近行权价', className: 'badge-loss' })
+        return fallback
+      })()
+
+  const hasRed = adviceTags.some(t => t.level === 'red')
+  const hasYellow = adviceTags.some(t => t.level === 'yellow')
+  const borderClass = adviceTags.length > 0
+    ? (hasRed ? 'border-loss/40' : hasYellow ? 'border-warning/40' : '')
+    : (expiringThisWeek ? 'border-warning/40' : profitOver70 ? 'border-profit/40' : nearStrike ? 'border-loss/40' : '')
 
   const handleClose = () => {
     const cp = parseFloat(closePremium)
@@ -191,6 +211,18 @@ export function PositionCard({ position, onClose, onUpdate, onDelete, optionChai
             {expanded ? <ChevronUp className="h-3.5 w-3.5 text-muted-foreground" /> : <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />}
           </span>
         </button>
+
+        {/* Cost dilution progress (LEAP/Stock) */}
+        {advice?.costInfo && (
+          <div className="flex items-center gap-2 px-3 pb-1.5 -mt-1 text-[10px]">
+            <span className="text-muted-foreground">净成本</span>
+            <span className="font-medium text-foreground">{formatCurrency(advice.costInfo.netCostPerShare)}</span>
+            <span className="text-muted-foreground">/</span>
+            <span className={`font-medium ${advice.costInfo.reductionPercent >= 50 ? 'text-profit' : advice.costInfo.reductionPercent > 0 ? 'text-primary' : 'text-muted-foreground'}`}>
+              已摊薄 {advice.costInfo.reductionPercent.toFixed(1)}%
+            </span>
+          </div>
+        )}
 
         {/* Expanded */}
         {expanded && (
@@ -445,9 +477,22 @@ export function PositionCard({ position, onClose, onUpdate, onDelete, optionChai
                 </div>
               )}
 
+              {/* Decision engine top action hint */}
+              {advice?.topAction && (
+                <div className="mt-2.5 px-2 py-1.5 rounded-lg bg-secondary/50 text-[11px] text-muted-foreground leading-relaxed">
+                  {advice.topAction}
+                </div>
+              )}
+
               {/* Actions */}
               {!isEditing && !showCloseForm && (
                 <div className="flex gap-2 mt-3 pt-2.5 border-t">
+                  {onOpenCalculator && (
+                    <Button size="sm" variant="ghost" className="text-xs text-primary"
+                      onClick={(e) => { e.stopPropagation(); onOpenCalculator(position) }}>
+                      <Calculator className="h-3 w-3 mr-0.5" />计算
+                    </Button>
+                  )}
                   <Button size="sm" variant="ghost" className="flex-1 text-xs"
                     onClick={() => { setIsQuickEdit(true); setEditCurrentPrice(position.currentPrice.toString()); setEditCurrentPremium(position.currentPremium?.toString() || '') }}>
                     更新
