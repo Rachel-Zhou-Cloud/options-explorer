@@ -15,6 +15,13 @@ import {
 import { AlertTriangle, TrendingUp, Target, Clock, X, ChevronDown, ChevronUp, Pencil, Activity, Calculator } from 'lucide-react'
 import { formatDataAge } from '@/lib/marketData'
 import type { PositionAdvice } from '@/lib/decisionEngine'
+import type { Alert as AlertEngineAlert } from '@/lib/alertEngine'
+
+interface CostInfoDirect {
+  netCostPerShare: number
+  reductionPercent: number
+  totalCollected: number
+}
 
 interface PositionCardProps {
   position: Position
@@ -25,6 +32,10 @@ interface PositionCardProps {
   dataTimestamp?: string
   advice?: PositionAdvice
   onOpenCalculator?: (position: Position) => void
+  /** alertEngine 预警 — 优先使用，缺失时回退到 advice.tags */
+  alertEngineAlerts?: AlertEngineAlert[]
+  /** 独立计算的成本摊薄 — 优先使用，缺失时回退到 advice.costInfo */
+  directCostInfo?: CostInfoDirect | null
 }
 
 const TYPE_LABELS: Record<string, string> = {
@@ -69,6 +80,7 @@ const isOptionType = (t: PositionType) => t !== 'stock'
 
 export function PositionCard({
   position, onClose, onUpdate, onDelete, optionChainData, dataTimestamp, advice, onOpenCalculator,
+  alertEngineAlerts, directCostInfo,
 }: PositionCardProps) {
   const [expanded, setExpanded] = useState(false)
   const [showCloseForm, setShowCloseForm] = useState(false)
@@ -86,6 +98,8 @@ export function PositionCard({
   const [editCostBasis, setEditCostBasis] = useState(position.costBasis?.toString() || '')
   const [editExpDate, setEditExpDate] = useState(position.expirationDate || '')
   const [editNotes, setEditNotes] = useState(position.notes || '')
+  // Alert badge expanded message index（用于点击展开完整 message）
+  const [expandedMsgIdx, setExpandedMsgIdx] = useState<number | null>(null)
 
   const dte = position.expirationDate ? daysUntilExpiry(position.expirationDate) : null
   const expiringThisWeek = position.expirationDate ? expiresWithinDays(position.expirationDate, 7) : false
@@ -128,11 +142,35 @@ export function PositionCard({
         return fallback
       })()
 
+  // alertEngine badges — 仅展示 red / orange，防信息过载
+  // 条件渲染：alertEngineAlerts 优先，缺失时 engineBadges 为空（不影响现有 alerts 行）
+  const engineBadges: { level: string; message: string; priority: number }[] =
+    alertEngineAlerts && alertEngineAlerts.length > 0
+      ? alertEngineAlerts
+          .filter(a => (a.level === 'red' || a.level === 'orange') && a.target === position.id)
+          .map(a => ({ level: a.level, message: a.message, priority: a.priority }))
+      : []
+
+  const badgeLevelBg: Record<string, string> = {
+    red: 'bg-destructive/15 text-destructive border-destructive/30',
+    orange: 'bg-orange-500/15 text-orange-400 border-orange-500/30',
+  }
+
+  // 成本摊薄数据：directCostInfo 优先 → advice.costInfo 回退
+  const costToShow: CostInfoDirect | null =
+    directCostInfo !== undefined
+      ? directCostInfo  // 新的独立计算数据（含 null）
+      : advice?.costInfo ?? null  // 回退到 decisionEngine 缓存
+
   const hasRed = adviceTags.some(t => t.level === 'red')
   const hasYellow = adviceTags.some(t => t.level === 'yellow')
   const borderClass = adviceTags.length > 0
     ? (hasRed ? 'border-loss/40' : hasYellow ? 'border-warning/40' : '')
     : (expiringThisWeek ? 'border-warning/40' : profitOver70 ? 'border-profit/40' : nearStrike ? 'border-loss/40' : '')
+
+  // 考虑 engineBadges 对边框颜色的增强
+  const hasEngineRed = engineBadges.some(b => b.level === 'red')
+  const finalBorderClass = hasEngineRed ? 'border-destructive/40' : borderClass
 
   const handleClose = () => {
     const cp = parseFloat(closePremium)
@@ -186,7 +224,7 @@ export function PositionCard({
   const typeColor = TYPE_COLORS[position.type] || TYPE_COLORS.custom
 
   return (
-    <Card className={`transition-all duration-200 ${borderClass}`}>
+    <Card className={`transition-all duration-200 ${finalBorderClass}`}>
       <CardContent className="p-0">
         {/* Compact row */}
         <button className="w-full flex items-center gap-2 px-3 py-2.5 text-left" onClick={() => setExpanded(!expanded)}>
@@ -212,14 +250,39 @@ export function PositionCard({
           </span>
         </button>
 
-        {/* Cost dilution progress (LEAP/Stock) */}
-        {advice?.costInfo && (
+        {/* alertEngine badges — red/orange 仅，点击展开完整 message */}
+        {engineBadges.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1 px-3 pb-1.5 -mt-0.5">
+            {engineBadges.map((b, i) => (
+              <button
+                key={i}
+                className={`rounded-full border px-2 py-0.5 text-[10px] font-medium leading-tight transition-all ${badgeLevelBg[b.level] || ''}`}
+                onClick={(e) => { e.stopPropagation(); setExpandedMsgIdx(expandedMsgIdx === i ? null : i) }}
+                title={b.message}
+              >
+                {b.level === 'red' ? '● ' : '◉ '}
+                {b.message.length > 24 ? b.message.slice(0, 22) + '…' : b.message}
+              </button>
+            ))}
+            {expandedMsgIdx !== null && engineBadges[expandedMsgIdx] && (
+              <div className="w-full mt-0.5 px-2 py-1.5 rounded-lg bg-secondary/60 text-[10px] text-muted-foreground leading-relaxed animate-fade-in">
+                {engineBadges[expandedMsgIdx].message}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Cost dilution progress (LEAP/Stock) — directCostInfo 优先，advice.costInfo 回退 */}
+        {costToShow && (position.type === 'leap_call' || position.type === 'stock') && (
           <div className="flex items-center gap-2 px-3 pb-1.5 -mt-1 text-[10px]">
             <span className="text-muted-foreground">净成本</span>
-            <span className="font-medium text-foreground">{formatCurrency(advice.costInfo.netCostPerShare)}</span>
+            <span className="font-medium text-foreground">{formatCurrency(costToShow.netCostPerShare)}</span>
             <span className="text-muted-foreground">/</span>
-            <span className={`font-medium ${advice.costInfo.reductionPercent >= 50 ? 'text-profit' : advice.costInfo.reductionPercent > 0 ? 'text-primary' : 'text-muted-foreground'}`}>
-              已摊薄 {advice.costInfo.reductionPercent.toFixed(1)}%
+            <span className={`font-medium ${
+              costToShow.reductionPercent >= 50 ? 'text-profit' :
+              costToShow.reductionPercent > 0 ? 'text-primary' : 'text-muted-foreground'
+            }`}>
+              已摊薄 {costToShow.reductionPercent.toFixed(1)}%
             </span>
           </div>
         )}
@@ -487,7 +550,13 @@ export function PositionCard({
               {/* Actions */}
               {!isEditing && !showCloseForm && (
                 <div className="flex gap-2 mt-3 pt-2.5 border-t">
-                  {onOpenCalculator && (
+                  {onOpenCalculator && position.type === 'sell_put' && (
+                    <Button size="sm" variant="ghost" className="text-xs text-orange-400"
+                      onClick={(e) => { e.stopPropagation(); onOpenCalculator(position) }}>
+                      <Calculator className="h-3 w-3 mr-0.5" />评估Roll
+                    </Button>
+                  )}
+                  {onOpenCalculator && position.type !== 'sell_put' && (
                     <Button size="sm" variant="ghost" className="text-xs text-primary"
                       onClick={(e) => { e.stopPropagation(); onOpenCalculator(position) }}>
                       <Calculator className="h-3 w-3 mr-0.5" />计算

@@ -9,6 +9,7 @@ import { fetchQuotes, fetchStaticMarketData, getQuoteFromStaticData, matchOption
 import { showToast } from '@/components/ui/toast'
 import { CsvImport } from '@/components/CsvImport'
 import { evaluatePortfolio } from '@/lib/decisionEngine'
+import { generateAlerts } from '@/lib/alertEngine'
 
 interface PositionsTabProps {
   positions: Position[]
@@ -46,11 +47,49 @@ export function PositionsTab({
     }
   }
 
-  // Run decision engine
+  // Run decision engine (保留原有逻辑)
   const adviceMap = useMemo(
     () => evaluatePortfolio(positions, marketData, cashBalance, getCostRecordsForPosition),
     [positions, marketData, cashBalance, getCostRecordsForPosition],
   )
+
+  // ===== alertEngine 预警（全新，独立 pipeline） =====
+  const allAlerts = useMemo(
+    () => generateAlerts(positions, cashBalance, getCostRecordsForPosition),
+    [positions, cashBalance, getCostRecordsForPosition],
+  )
+
+  // ===== 成本摊薄独立计算（LEAP/Stock，不依赖 decisionEngine） =====
+  interface CostInfoDirect { netCostPerShare: number; reductionPercent: number; totalCollected: number }
+  const costInfoMap = useMemo(() => {
+    const map = new Map<string, CostInfoDirect | null>()
+    for (const pos of positions) {
+      if (pos.type !== 'leap_call' && pos.type !== 'stock') continue
+
+      const records = getCostRecordsForPosition(pos.id)
+      const totalCollected = records.reduce(
+        (sum, r) => sum + r.premiumCollected * r.quantity * 100, 0,
+      )
+
+      const initialCostPerShare =
+        pos.type === 'stock' ? (pos.costBasis ?? pos.strikePrice) : pos.premium
+      const mult = pos.type === 'stock' ? 1 : 100
+      const totalInitialCost = initialCostPerShare * pos.quantity * mult
+
+      if (totalInitialCost > 0) {
+        const reductionPercent = (totalCollected / totalInitialCost) * 100
+        const collectedPerShare = totalCollected / (pos.quantity * mult)
+        map.set(pos.id, {
+          netCostPerShare: initialCostPerShare - collectedPerShare,
+          reductionPercent,
+          totalCollected,
+        })
+      } else {
+        map.set(pos.id, null)
+      }
+    }
+    return map
+  }, [positions, getCostRecordsForPosition])
 
   // Categorize positions
   const leapCalls = positions.filter(p => {
@@ -227,7 +266,10 @@ export function PositionsTab({
           subtitle=">90天长期看涨"
         >
           {leapCalls.map(pos => (
-            <PositionCard key={pos.id} position={pos} onClose={onClose} onUpdate={onUpdate} onDelete={onDelete} optionChainData={optionDataMap.get(pos.id)} dataTimestamp={marketData?.timestamp} advice={adviceMap.get(pos.id)} onOpenCalculator={onOpenCalculator} />
+            <PositionCard key={pos.id} position={pos} onClose={onClose} onUpdate={onUpdate} onDelete={onDelete}
+              optionChainData={optionDataMap.get(pos.id)} dataTimestamp={marketData?.timestamp}
+              advice={adviceMap.get(pos.id)} onOpenCalculator={onOpenCalculator}
+              alertEngineAlerts={allAlerts} directCostInfo={costInfoMap.get(pos.id)} />
           ))}
         </Section>
       )}
@@ -241,7 +283,10 @@ export function PositionsTab({
           subtitle="原LEAP已<90天"
         >
           {shortTermCalls.map(pos => (
-            <PositionCard key={pos.id} position={pos} onClose={onClose} onUpdate={onUpdate} onDelete={onDelete} optionChainData={optionDataMap.get(pos.id)} dataTimestamp={marketData?.timestamp} advice={adviceMap.get(pos.id)} onOpenCalculator={onOpenCalculator} />
+            <PositionCard key={pos.id} position={pos} onClose={onClose} onUpdate={onUpdate} onDelete={onDelete}
+              optionChainData={optionDataMap.get(pos.id)} dataTimestamp={marketData?.timestamp}
+              advice={adviceMap.get(pos.id)} onOpenCalculator={onOpenCalculator}
+              alertEngineAlerts={allAlerts} directCostInfo={costInfoMap.get(pos.id)} />
           ))}
         </Section>
       )}
@@ -255,7 +300,10 @@ export function PositionsTab({
           subtitle="股票持仓"
         >
           {stocks.map(pos => (
-            <PositionCard key={pos.id} position={pos} onClose={onClose} onUpdate={onUpdate} onDelete={onDelete} optionChainData={optionDataMap.get(pos.id)} dataTimestamp={marketData?.timestamp} advice={adviceMap.get(pos.id)} onOpenCalculator={onOpenCalculator} />
+            <PositionCard key={pos.id} position={pos} onClose={onClose} onUpdate={onUpdate} onDelete={onDelete}
+              optionChainData={optionDataMap.get(pos.id)} dataTimestamp={marketData?.timestamp}
+              advice={adviceMap.get(pos.id)} onOpenCalculator={onOpenCalculator}
+              alertEngineAlerts={allAlerts} directCostInfo={costInfoMap.get(pos.id)} />
           ))}
         </Section>
       )}
@@ -269,7 +317,10 @@ export function PositionsTab({
           subtitle="按到期日排序"
         >
           {sellCalls.map(pos => (
-            <PositionCard key={pos.id} position={pos} onClose={onClose} onUpdate={onUpdate} onDelete={onDelete} optionChainData={optionDataMap.get(pos.id)} dataTimestamp={marketData?.timestamp} advice={adviceMap.get(pos.id)} onOpenCalculator={onOpenCalculator} />
+            <PositionCard key={pos.id} position={pos} onClose={onClose} onUpdate={onUpdate} onDelete={onDelete}
+              optionChainData={optionDataMap.get(pos.id)} dataTimestamp={marketData?.timestamp}
+              advice={adviceMap.get(pos.id)} onOpenCalculator={onOpenCalculator}
+              alertEngineAlerts={allAlerts} />
           ))}
         </Section>
       )}
@@ -283,7 +334,10 @@ export function PositionsTab({
           subtitle="按到期日排序"
         >
           {sellPuts.map(pos => (
-            <PositionCard key={pos.id} position={pos} onClose={onClose} onUpdate={onUpdate} onDelete={onDelete} optionChainData={optionDataMap.get(pos.id)} dataTimestamp={marketData?.timestamp} advice={adviceMap.get(pos.id)} onOpenCalculator={onOpenCalculator} />
+            <PositionCard key={pos.id} position={pos} onClose={onClose} onUpdate={onUpdate} onDelete={onDelete}
+              optionChainData={optionDataMap.get(pos.id)} dataTimestamp={marketData?.timestamp}
+              advice={adviceMap.get(pos.id)} onOpenCalculator={onOpenCalculator}
+              alertEngineAlerts={allAlerts} />
           ))}
         </Section>
       )}
@@ -297,7 +351,10 @@ export function PositionsTab({
           subtitle="Buy/Custom"
         >
           {otherPositions.map(pos => (
-            <PositionCard key={pos.id} position={pos} onClose={onClose} onUpdate={onUpdate} onDelete={onDelete} optionChainData={optionDataMap.get(pos.id)} dataTimestamp={marketData?.timestamp} advice={adviceMap.get(pos.id)} onOpenCalculator={onOpenCalculator} />
+            <PositionCard key={pos.id} position={pos} onClose={onClose} onUpdate={onUpdate} onDelete={onDelete}
+              optionChainData={optionDataMap.get(pos.id)} dataTimestamp={marketData?.timestamp}
+              advice={adviceMap.get(pos.id)} onOpenCalculator={onOpenCalculator}
+              alertEngineAlerts={allAlerts} />
           ))}
         </Section>
       )}
