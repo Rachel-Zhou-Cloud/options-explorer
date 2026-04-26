@@ -66,9 +66,11 @@ export function CalculatorTab({ apiKey, onCreatePosition, prefill, onClearPrefil
   // ===== 处理 prefill（普通 or Roll） =====
   useEffect(() => {
     if (!prefill) return
+    console.log('[CalculatorTab] prefill received:', prefill)
     if (prefill.rollFrom) {
       // --- 进入 Roll 分析模式 ---
       const ctx = prefill.rollFrom
+      console.log('[CalculatorTab] entering Roll mode with context:', ctx)
       setRollMode(true)
       setRollContext(ctx)
       // 锁定原仓参数
@@ -255,6 +257,7 @@ export function CalculatorTab({ apiKey, onCreatePosition, prefill, onClearPrefil
       </div>
 
       {/* ============ Roll 模式 ============ */}
+      {(() => { console.log('[CalculatorTab] render — rollMode:', rollMode, 'rollContext:', rollContext); return null })()}
       {rollMode && rollContext && (
         <>
           {/* 原仓只读摘要 */}
