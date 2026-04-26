@@ -4,10 +4,11 @@ import { PositionsTab } from '@/components/PositionsTab'
 import { PerformanceTab } from '@/components/PerformanceTab'
 import { CostAnalysisTab } from '@/components/CostAnalysisTab'
 import { RiskControlTab } from '@/components/RiskControlTab'
+import { DecisionCenter } from '@/components/DecisionCenter'
 import { ToastContainer, showToast } from '@/components/ui/toast'
 import { useStore } from '@/store/useStore'
 import type { Position } from '@/types'
-import { Calculator, Layers, Trophy, PiggyBank, Shield, Settings, X, Wifi, Copy } from 'lucide-react'
+import { Calculator, Layers, Trophy, PiggyBank, Shield, Settings, X, Wifi, Copy, LayoutDashboard } from 'lucide-react'
 import { fetchStaticMarketData, getQuoteFromStaticData, matchOptionData, formatDataAge } from '@/lib/marketData'
 
 type TabId = 'calculator' | 'positions' | 'cost' | 'performance' | 'risk'
@@ -23,6 +24,7 @@ const tabs: { id: TabId; label: string; icon: typeof Calculator }[] = [
 function App() {
   const [activeTab, setActiveTab] = useState<TabId>('calculator')
   const [showSettings, setShowSettings] = useState(false)
+  const [showDashboard, setShowDashboard] = useState(false)
   const [apiKeyInput, setApiKeyInput] = useState('')
   const [prefillPosition, setPrefillPosition] = useState<Partial<Position> | null>(null)
   const store = useStore()
@@ -100,6 +102,19 @@ function App() {
     <div className="min-h-screen bg-background flex flex-col">
       <ToastContainer />
 
+      {/* Decision Center — full-screen overlay */}
+      {showDashboard && (
+        <DecisionCenter
+          positions={store.positions}
+          cashBalance={store.cashBalance}
+          getCostRecordsForPosition={store.getCostRecordsForPosition}
+          onBack={() => setShowDashboard(false)}
+        />
+      )}
+
+      {/* Main app (hidden when Dashboard is open) */}
+      {!showDashboard && (<>
+
       {/* Settings Modal */}
       {showSettings && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm px-4">
@@ -165,7 +180,13 @@ function App() {
       {/* Top bar */}
       <header className="sticky top-0 z-40 border-b bg-background/80 backdrop-blur-xl">
         <div className="flex items-center justify-between h-12 px-4">
-          <div className="w-8" />
+          <button
+            onClick={() => setShowDashboard(true)}
+            className="text-muted-foreground hover:text-primary transition-colors"
+            title="Decision Center"
+          >
+            <LayoutDashboard className="h-4.5 w-4.5" />
+          </button>
           <h1 className="text-sm font-semibold text-foreground tracking-wide">Options Explorer</h1>
           <button onClick={openSettings} className="text-muted-foreground hover:text-foreground transition-colors">
             <Settings className="h-4.5 w-4.5" />
@@ -241,6 +262,7 @@ function App() {
           })}
         </div>
       </nav>
+      </>)}
     </div>
   )
 }
