@@ -14,15 +14,15 @@ import { fetchStaticMarketData, getQuoteFromStaticData, matchOptionData, formatD
 type TabId = 'calculator' | 'positions' | 'cost' | 'performance' | 'today'
 
 const tabs: { id: TabId; label: string; icon: typeof Calculator }[] = [
+  { id: 'today', label: '今日', icon: CalendarDays },
   { id: 'calculator', label: '计算器', icon: Calculator },
   { id: 'positions', label: '持仓', icon: Layers },
   { id: 'cost', label: '成本', icon: PiggyBank },
   { id: 'performance', label: '绩效', icon: Trophy },
-  { id: 'today', label: '今日', icon: CalendarDays },
 ]
 
 function App() {
-  const [activeTab, setActiveTab] = useState<TabId>('calculator')
+  const [activeTab, setActiveTab] = useState<TabId>('today')
   const [showSettings, setShowSettings] = useState(false)
   const [showDashboard, setShowDashboard] = useState(false)
   const [apiKeyInput, setApiKeyInput] = useState('')

@@ -46,6 +46,8 @@ function formatNetTheta(value: number): string {
   return sign + '$' + value.toFixed(0) + '/天'
 }
 
+const HEALTH_RECOS: Record<string, string> = {  cashRatio: '建议 ≥40%',  bpr: '建议 <50%',  notional: '常见 >100%',  theta: '建议 +$10~$50/天',  vega: '建议 ≥ -$300',};
+
 export function TodayTab({
   positions,
   cashBalance,
@@ -216,18 +218,21 @@ export function TodayTab({
               label="现金比例"
               value={(account.cashRatio * 100).toFixed(0) + '%'}
               desc={accountAlertMap.cash?.message ?? null}
+              recommendation={HEALTH_RECOS.cashRatio}
               alert={accountAlertMap.cash ?? null}
             />
             <HealthRow
               label="BPR占用率"
               value={(account.bprUtilization * 100).toFixed(0) + '%'}
               desc={accountAlertMap.bpr?.message ?? null}
+              recommendation={HEALTH_RECOS.bpr}
               alert={accountAlertMap.bpr ?? null}
             />
             <HealthRow
               label="名义敞口率"
               value={(sellPutRisk.notionalRatio * 100).toFixed(0) + '%'}
               desc={notionalDesc}
+              recommendation={HEALTH_RECOS.notional}
               alert={{ level: notionalLevel, target: '账户', message: notionalDesc, priority: 3 }}
             />
             <HealthRow
@@ -236,12 +241,14 @@ export function TodayTab({
                 ? formatNetTheta(greeks.netTheta)
                 : '数据不可用'}
               desc={accountAlertMap.theta?.message ?? null}
+              recommendation={HEALTH_RECOS.theta}
               alert={accountAlertMap.theta ?? null}
             />
             <HealthRow
               label="净Vega敏感度"
               value={'$' + greeks.netVega.toFixed(0) + '/VIX点'}
               desc={vegaDesc}
+              recommendation={HEALTH_RECOS.vega}
               alert={{ level: vegaLevel, target: '账户', message: vegaDesc, priority: 3 }}
             />
           </div>
@@ -437,11 +444,13 @@ function HealthRow({
   value,
   desc,
   alert,
+  recommendation,
 }: {
   label: string
   value: string
   desc: string | null
   alert: Alert | null
+  recommendation?: string
 }) {
   const level = alert?.level ?? null
   const dotColor = level ? LEVEL_DOT[level] : 'bg-muted-foreground/30'
@@ -456,6 +465,11 @@ function HealthRow({
       {desc && (
         <div className="text-[10px] text-muted-foreground mt-0.5 ml-[18px] leading-relaxed">
           {desc}
+        </div>
+      )}
+      {recommendation && (
+        <div className="text-[10px] text-muted-foreground/70 mt-0.5 ml-[18px] leading-relaxed">
+          {recommendation}
         </div>
       )}
     </div>
