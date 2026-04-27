@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { formatCurrency, formatDateFull } from '@/lib/calculations'
 import {
-  Trophy,
+  ClipboardList,
   TrendingUp,
   TrendingDown,
   Brain,
@@ -12,12 +12,13 @@ import {
   Target,
   BarChart3,
   Upload,
+  PieChart,
 } from 'lucide-react'
 import { TradeImport } from '@/components/TradeImport'
 
 const TRADE_TYPE_LABELS: Record<string, string> = {
-  sell_put: 'SP', sell_call: 'SC', leap_call: 'LC',
-  buy_call: 'BC', buy_put: 'BP', stock: 'STK', custom: 'OTH',
+  sell_put: 'Sell Put', sell_call: 'Sell Call', leap_call: 'LEAP Call',
+  buy_call: 'Buy Call', buy_put: 'Buy Put', stock: '正股买卖', custom: '其他',
 }
 
 const TRADE_TYPE_COLORS: Record<string, string> = {
@@ -30,6 +31,11 @@ const TRADE_TYPE_COLORS: Record<string, string> = {
   custom: 'bg-secondary text-secondary-foreground',
 }
 
+const SHORT_LABEL: Record<string, string> = {
+  sell_put: 'SP', sell_call: 'SC', leap_call: 'LC',
+  buy_call: 'BC', buy_put: 'BP', stock: 'STK', custom: 'OTH',
+}
+
 interface PerformanceTabProps {
   closedTrades: ClosedTrade[]
   onDeleteTrade: (id: string) => void
@@ -37,6 +43,49 @@ interface PerformanceTabProps {
   positions?: Position[]
   cashBalance?: number
 }
+
+// ===== Strategy-level stats =====
+
+interface StrategyStats {
+  type: string
+  label: string
+  color: string
+  count: number
+  wins: number
+  losses: number
+  winRate: number
+  totalPnL: number
+  avgPnL: number
+}
+
+function computeStrategyStats(trades: ClosedTrade[]): StrategyStats[] {
+  const map: Record<string, { wins: number; losses: number; totalPnL: number }> = {}
+  for (const t of trades) {
+    if (!map[t.type]) map[t.type] = { wins: 0, losses: 0, totalPnL: 0 }
+    if (t.isWin) map[t.type].wins++
+    else map[t.type].losses++
+    map[t.type].totalPnL += t.pnl
+  }
+  const result: StrategyStats[] = []
+  for (const [type, data] of Object.entries(map)) {
+    const count = data.wins + data.losses
+    result.push({
+      type,
+      label: TRADE_TYPE_LABELS[type] || type,
+      color: TRADE_TYPE_COLORS[type] || TRADE_TYPE_COLORS.custom,
+      count,
+      wins: data.wins,
+      losses: data.losses,
+      winRate: count > 0 ? data.wins / count : 0,
+      totalPnL: data.totalPnL,
+      avgPnL: count > 0 ? data.totalPnL / count : 0,
+    })
+  }
+  result.sort((a, b) => b.count - a.count)
+  return result
+}
+
+// ===== Main Component =====
 
 export function PerformanceTab({ closedTrades, onDeleteTrade, onAddTrade, positions, cashBalance }: PerformanceTabProps) {
   const [showImport, setShowImport] = useState(false)
@@ -53,17 +102,14 @@ export function PerformanceTab({ closedTrades, onDeleteTrade, onAddTrade, positi
     ? closedTrades.filter(t => !t.isWin).reduce((sum, t) => sum + t.pnl, 0) / losses
     : 0
 
-  // Mathematical Expectation = WinRate × AvgWin + LossRate × AvgLoss
   const expectation = totalTrades > 0
     ? winRate * avgWin + (1 - winRate) * avgLoss
     : 0
 
-  // Profit factor = gross profit / |gross loss|
   const grossProfit = closedTrades.filter(t => t.isWin).reduce((sum, t) => sum + t.pnl, 0)
   const grossLoss = Math.abs(closedTrades.filter(t => !t.isWin).reduce((sum, t) => sum + t.pnl, 0))
   const profitFactor = grossLoss > 0 ? grossProfit / grossLoss : grossProfit > 0 ? Infinity : 0
 
-  // Max consecutive wins/losses
   let maxConsecWins = 0
   let maxConsecLosses = 0
   let currentConsec = 0
@@ -79,13 +125,13 @@ export function PerformanceTab({ closedTrades, onDeleteTrade, onAddTrade, positi
     else maxConsecLosses = Math.max(maxConsecLosses, currentConsec)
   }
 
-  // Sell put specific stats
+  const strategyStats = computeStrategyStats(closedTrades)
+
   const sellPutTrades = closedTrades.filter(t => t.type === 'sell_put')
   const sellPutWinRate = sellPutTrades.length > 0
     ? sellPutTrades.filter(t => t.isWin).length / sellPutTrades.length
     : 0
 
-  // Account NAV (rough estimate from positions + cash)
   const accountNav = (() => {
     if (!positions || cashBalance === undefined) return 0
     let stockValue = 0
@@ -95,7 +141,6 @@ export function PerformanceTab({ closedTrades, onDeleteTrade, onAddTrade, positi
     return cashBalance + stockValue
   })()
 
-  // Max single loss / NAV ratio (tail risk)
   const maxSingleLoss = totalTrades > 0
     ? Math.min(...closedTrades.map(t => t.pnl))
     : 0
@@ -114,6 +159,7 @@ export function PerformanceTab({ closedTrades, onDeleteTrade, onAddTrade, positi
     sellPutWinRate,
     sellPutCount: sellPutTrades.length,
     maxLossNavRatio,
+    strategyStats,
   })
 
   return (
@@ -122,11 +168,11 @@ export function PerformanceTab({ closedTrades, onDeleteTrade, onAddTrade, positi
       <div className="flex items-center justify-between px-1">
         <div className="flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
-            <Trophy className="h-5 w-5 text-primary" />
+            <Clipboard className="h-5 w-5 text-primary" />
           </div>
           <div>
-            <h2 className="text-lg font-semibold text-foreground">投资绩效</h2>
-            <p className="text-xs text-muted-foreground">交易记录与策略分析</p>
+            <h2 className="text-lg font-semibold text-foreground">交易复盘</h2>
+            <p className="text-xs text-muted-foreground">已平仓记录与策略分析</p>
           </div>
         </div>
         <Button size="sm" variant="outline" onClick={() => setShowImport(!showImport)}>
@@ -135,7 +181,6 @@ export function PerformanceTab({ closedTrades, onDeleteTrade, onAddTrade, positi
         </Button>
       </div>
 
-      {/* Trade Import */}
       {showImport && (
         <TradeImport
           onImport={(trades) => { trades.forEach(t => onAddTrade(t)); setShowImport(false) }}
@@ -143,7 +188,6 @@ export function PerformanceTab({ closedTrades, onDeleteTrade, onAddTrade, positi
         />
       )}
 
-      {/* Empty state */}
       {totalTrades === 0 && (
         <div className="flex flex-col items-center justify-center py-16 text-center">
           <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-secondary mb-4">
@@ -156,12 +200,11 @@ export function PerformanceTab({ closedTrades, onDeleteTrade, onAddTrade, positi
 
       {totalTrades > 0 && (
         <>
-          {/* Key Stats Grid */}
           <div className="grid grid-cols-2 gap-3">
             <StatCard
               label="胜率"
-              value={`${(winRate * 100).toFixed(1)}%`}
-              subtitle={`${wins}胜 / ${losses}负`}
+              value={winRate.toPercent(1)}
+              subtitle={wins + '胜 / ' + losses + '负'}
               isPositive={winRate >= 0.5}
             />
             <StatCard
@@ -173,7 +216,7 @@ export function PerformanceTab({ closedTrades, onDeleteTrade, onAddTrade, positi
             <StatCard
               label="总盈亏"
               value={formatCurrency(totalPnL)}
-              subtitle={`共 ${totalTrades} 笔交易`}
+              subtitle={'共 ' + totalTrades + ' 笔交易'}
               isPositive={totalPnL >= 0}
             />
             <StatCard
@@ -184,7 +227,39 @@ export function PerformanceTab({ closedTrades, onDeleteTrade, onAddTrade, positi
             />
           </div>
 
-          {/* Detailed Stats */}
+          {/* ═══ 策略分类统计 ═══ */}
+          {strategyStats.length > 0 && (
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm text-muted-foreground flex items-center gap-1.5">
+                  <PieChart className="h-3.5 w-3.5" />
+                  策略分类统计
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="flex flex-col gap-2">
+                {strategyStats.map((s) => (
+                  <div key={s.type} className="flex items-center justify-between text-xs py-1 border-b last:border-0">
+                    <div className="flex items-center gap-2">
+                      <span className={'rounded-md px-1.5 py-0.5 text-[10px] font-bold ' + s.color}>
+                        {SHORT_LABEL[s.type] || 'OTH'}
+                      </span>
+                      <span className="text-foreground">{s.label}</span>
+                      <span className="text-muted-foreground">{s.count + '笔'}</span>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span className={s.winRate >= 0.5 ? 'text-profit' : 'text-loss'}>
+                        {(s.winRate * 100).toFixed(0) + '%'}
+                      </span>
+                      <span className={'tabular-nums font-medium ' + (s.totalPnL >= 0 ? 'text-profit' : 'text-loss')}>
+                        {(s.totalPnL >= 0 ? '+' : '') + formatCurrency(s.totalPnL)}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+          )}
+
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="text-sm text-muted-foreground">详细统计</CardTitle>
@@ -192,42 +267,40 @@ export function PerformanceTab({ closedTrades, onDeleteTrade, onAddTrade, positi
             <CardContent className="flex flex-col gap-2">
               <DetailRow label="平均盈利" value={formatCurrency(avgWin)} isPositive />
               <DetailRow label="平均亏损" value={formatCurrency(avgLoss)} isPositive={false} />
-              <DetailRow label="最大连胜" value={`${maxConsecWins} 笔`} isPositive />
-              <DetailRow label="最大连亏" value={`${maxConsecLosses} 笔`} isPositive={false} />
+              <DetailRow label="最大连胜" value={maxConsecWins + ' 笔'} isPositive />
+              <DetailRow label="最大连亏" value={maxConsecLosses + ' 笔'} isPositive={false} />
               {sellPutTrades.length > 0 && (
                 <DetailRow
                   label="Sell Put 胜率"
-                  value={`${(sellPutWinRate * 100).toFixed(1)}%`}
+                  value={(sellPutWinRate * 100).toFixed(1) + '%'}
                   isPositive={sellPutWinRate >= 0.5}
                 />
               )}
               {maxLossNavRatio !== null && (
                 <DetailRow
                   label="最大单笔亏损/NAV"
-                  value={`${(maxLossNavRatio * 100).toFixed(1)}%`}
+                  value={(maxLossNavRatio * 100).toFixed(1) + '%'}
                   isPositive={maxLossNavRatio < 0.05}
                 />
               )}
             </CardContent>
           </Card>
 
-          {/* Insights */}
           {insights.length > 0 && (
             <Card className="border-primary/20">
               <CardHeader className="pb-2">
                 <CardTitle className="text-sm flex items-center gap-2">
                   <Brain className="h-4 w-4 text-primary" />
-                  投资洞察与建议
+                  复盘洞察与建议
                 </CardTitle>
               </CardHeader>
               <CardContent className="flex flex-col gap-3">
                 {insights.map((insight, i) => (
                   <div key={i} className="flex gap-3 text-xs">
-                    <span className={`mt-0.5 flex-shrink-0 ${
-                      insight.type === 'positive' ? 'text-profit' :
-                      insight.type === 'negative' ? 'text-loss' :
-                      'text-warning'
-                    }`}>
+                    <span className={'mt-0.5 flex-shrink-0 ' +
+                      (insight.type === 'positive' ? 'text-profit' :
+                       insight.type === 'negative' ? 'text-loss' :
+                       'text-warning')}>
                       {insight.type === 'positive' ? (
                         <TrendingUp className="h-3.5 w-3.5" />
                       ) : insight.type === 'negative' ? (
@@ -243,7 +316,6 @@ export function PerformanceTab({ closedTrades, onDeleteTrade, onAddTrade, positi
             </Card>
           )}
 
-          {/* Trade History */}
           <div className="flex flex-col gap-2">
             <h3 className="text-sm font-medium text-muted-foreground px-1">交易历史</h3>
             {[...closedTrades].reverse().map(trade => (
@@ -251,10 +323,9 @@ export function PerformanceTab({ closedTrades, onDeleteTrade, onAddTrade, positi
                 <CardContent className="p-3">
                   <div className="flex items-center justify-between mb-1">
                     <div className="flex items-center gap-2">
-                      <span className={`rounded-md px-1.5 py-0.5 text-[10px] font-bold ${
-                        TRADE_TYPE_COLORS[trade.type] || TRADE_TYPE_COLORS.custom
-                      }`}>
-                        {TRADE_TYPE_LABELS[trade.type] || 'OTH'}
+                      <span className={'rounded-md px-1.5 py-0.5 text-[10px] font-bold ' +
+                        (TRADE_TYPE_COLORS[trade.type] || TRADE_TYPE_COLORS.custom)}>
+                        {SHORT_LABEL[trade.type] || 'OTH'}
                       </span>
                       <span className="text-sm font-medium text-foreground">{trade.ticker}</span>
                       {trade.type !== 'stock' && (
@@ -274,10 +345,10 @@ export function PerformanceTab({ closedTrades, onDeleteTrade, onAddTrade, positi
                     <span className="text-muted-foreground">
                       {formatDateFull(trade.openDate)} → {formatDateFull(trade.closeDate)}
                     </span>
-                    <span className={`font-semibold ${trade.pnl >= 0 ? 'text-profit' : 'text-loss'}`}>
-                      {trade.pnl >= 0 ? '+' : ''}{formatCurrency(trade.pnl)}
+                    <span className={'font-semibold ' + (trade.pnl >= 0 ? 'text-profit' : 'text-loss')}>
+                      {(trade.pnl >= 0 ? '+' : '') + formatCurrency(trade.pnl)}
                       <span className="ml-1 font-normal">
-                        ({trade.pnlPercent >= 0 ? '+' : ''}{trade.pnlPercent.toFixed(1)}%)
+                        ({(trade.pnlPercent >= 0 ? '+' : '') + trade.pnlPercent.toFixed(1) + '%'})
                       </span>
                     </span>
                   </div>
@@ -290,6 +361,8 @@ export function PerformanceTab({ closedTrades, onDeleteTrade, onAddTrade, positi
     </div>
   )
 }
+
+// ===== Sub-components =====
 
 function StatCard({
   label,
@@ -306,7 +379,7 @@ function StatCard({
     <Card>
       <CardContent className="p-4">
         <div className="stat-label mb-1">{label}</div>
-        <div className={`stat-value ${isPositive ? 'text-profit' : 'text-loss'}`}>
+        <div className={'stat-value ' + (isPositive ? 'text-profit' : 'text-loss')}>
           {value}
         </div>
         <div className="text-[10px] text-muted-foreground mt-1">{subtitle}</div>
@@ -327,10 +400,12 @@ function DetailRow({
   return (
     <div className="flex items-center justify-between text-xs">
       <span className="text-muted-foreground">{label}</span>
-      <span className={`font-medium ${isPositive ? 'text-profit' : 'text-loss'}`}>{value}</span>
+      <span className={'font-medium ' + (isPositive ? 'text-profit' : 'text-loss')}>{value}</span>
     </div>
   )
 }
+
+// ===== Insights Engine =====
 
 interface InsightParams {
   totalTrades: number
@@ -343,6 +418,7 @@ interface InsightParams {
   sellPutWinRate: number
   sellPutCount: number
   maxLossNavRatio: number | null
+  strategyStats: StrategyStats[]
 }
 
 interface Insight {
@@ -361,16 +437,32 @@ function generateInsights(params: InsightParams): Insight[] {
     return insights
   }
 
-  // Win rate analysis
+  // ═══ 策略胜率差异分析 ═══
+  const validStrats = params.strategyStats.filter(s => s.count >= 3)
+  if (validStrats.length >= 2) {
+    const sorted = [...validStrats].sort((a, b) => b.winRate - a.winRate)
+    const best = sorted[0]
+    const worst = sorted[sorted.length - 1]
+    if (best.winRate - worst.winRate > 0.15) {
+      insights.push({
+        type: 'neutral',
+        message: '策略胜率差异明显：' + best.label + '胜率' + (best.winRate * 100).toFixed(0) + '%表现最佳，' +
+          worst.label + '仅' + (worst.winRate * 100).toFixed(0) + '%。建议有倾向性地增加' + best.label +
+          '类交易占比，并检讨' + worst.label + '策略的选股和时机问题。',
+      })
+    }
+  }
+
+  // Win rate
   if (params.winRate >= 0.7) {
     insights.push({
       type: 'positive',
-      message: `胜率 ${(params.winRate * 100).toFixed(0)}% 表现优异。Sell Put 策略天然具有高胜率特征，请关注单笔亏损是否可控，防止"小赚大亏"。`,
+      message: '胜率 ' + (params.winRate * 100).toFixed(0) + '% 表现优异。Sell Put 策略天然具有高胜率特征，请关注单笔亏损是否可控，防止"小赚大亏"。',
     })
   } else if (params.winRate < 0.5) {
     insights.push({
       type: 'negative',
-      message: `胜率不足 50%。建议审视选股标准和行权价选择，考虑选择更深虚值的 Put 来提高胜率，或者检查是否在波动率较低时卖出导致权利金不足以覆盖风险。`,
+      message: '胜率不足 50%。建议审视选股标准和行权价选择，考虑选择更深虚值的 Put 来提高胜率。',
     })
   }
 
@@ -378,12 +470,12 @@ function generateInsights(params: InsightParams): Insight[] {
   if (params.expectation > 0) {
     insights.push({
       type: 'positive',
-      message: `正数学期望 ${formatCurrency(params.expectation)} / 笔，长期坚持该策略预期能持续盈利。继续保持当前的风控纪律。`,
+      message: '正数学期望 ' + formatCurrency(params.expectation) + ' / 笔，长期坚持该策略预期能持续盈利。继续保持当前的风控纪律。',
     })
   } else if (params.expectation < 0) {
     insights.push({
       type: 'negative',
-      message: `负数学期望 ${formatCurrency(params.expectation)} / 笔，表明当前策略长期会亏损。建议调整：1) 缩小仓位控制单笔亏损；2) 提前止损或滚仓（roll）来限制下行风险。`,
+      message: '负数学期望 ' + formatCurrency(params.expectation) + ' / 笔，表明当前策略长期会亏损。建议调整：1) 缩小仓位控制单笔亏损；2) 提前止损或滚仓（roll）来限制下行风险。',
     })
   }
 
@@ -391,12 +483,12 @@ function generateInsights(params: InsightParams): Insight[] {
   if (params.profitFactor < 1 && params.profitFactor > 0) {
     insights.push({
       type: 'negative',
-      message: `盈亏比 ${params.profitFactor.toFixed(2)} 低于 1，亏损总额大于盈利总额。考虑提高平仓纪律：在盈利达到 50-70% 时及时止盈，减少持有到期的时间风险。`,
+      message: '盈亏比 ' + params.profitFactor.toFixed(2) + ' 低于 1，亏损总额大于盈利总额。考虑提高平仓纪律：在盈利达到 50-70% 时及时止盈，减少持有到期的时间风险。',
     })
   } else if (params.profitFactor >= 2) {
     insights.push({
       type: 'positive',
-      message: `盈亏比 ${params.profitFactor.toFixed(2)} 优秀，盈利远大于亏损。当前策略的风险回报配置合理。`,
+      message: '盈亏比 ' + params.profitFactor.toFixed(2) + ' 优秀，盈利远大于亏损。当前策略的风险回报配置合理。',
     })
   }
 
@@ -404,7 +496,7 @@ function generateInsights(params: InsightParams): Insight[] {
   if (Math.abs(params.avgLoss) > params.avgWin * 3 && params.avgWin > 0) {
     insights.push({
       type: 'negative',
-      message: `平均亏损是平均盈利的 ${(Math.abs(params.avgLoss) / params.avgWin).toFixed(1)} 倍，存在"小赚大亏"问题。建议设置明确的止损线（如权利金翻倍时平仓），或在标的跌破关键支撑位时果断止损。`,
+      message: '平均亏损是平均盈利的 ' + (Math.abs(params.avgLoss) / params.avgWin).toFixed(1) + ' 倍，存在"小赚大亏"问题。建议设置明确的止损线（如权利金翻倍时平仓），或在标的跌破关键支撑位时果断止损。',
     })
   }
 
@@ -412,7 +504,7 @@ function generateInsights(params: InsightParams): Insight[] {
   if (params.maxConsecLosses >= 3) {
     insights.push({
       type: 'neutral',
-      message: `最大连亏 ${params.maxConsecLosses} 笔，注意连亏期间的心理状态管理。建议在连亏后暂停交易，复盘市场环境是否发生变化（如进入熊市或高波动期），而非情绪化加仓。`,
+      message: '最大连亏 ' + params.maxConsecLosses + ' 笔，注意连亏期间的心理状态管理。建议在连亏后暂停交易，复盘市场环境是否发生变化（如进入熊市或高波动期），而非情绪化加仓。',
     })
   }
 
@@ -421,24 +513,36 @@ function generateInsights(params: InsightParams): Insight[] {
     if (params.sellPutWinRate >= 0.8) {
       insights.push({
         type: 'positive',
-        message: `Sell Put 胜率 ${(params.sellPutWinRate * 100).toFixed(0)}% 高于策略平均预期。说明行权价选择和时机把握较好。可以考虑逐步增加仓位或尝试更激进的行权价以提高收益。`,
+        message: 'Sell Put 胜率 ' + (params.sellPutWinRate * 100).toFixed(0) + '% 高于策略平均预期。说明行权价选择和时机把握较好。可以考虑逐步增加仓位或尝试更激进的行权价以提高收益。',
       })
     } else if (params.sellPutWinRate < 0.6) {
       insights.push({
         type: 'neutral',
-        message: `Sell Put 胜率偏低，建议：1) 选择更低 Delta（如 0.15-0.20）的行权价；2) 优先在 IV Rank > 50% 时卖出；3) 选择基本面优质、你愿意持有的标的。`,
+        message: 'Sell Put 胜率偏低，建议：1) 选择更低 Delta（如 0.15-0.20）的行权价；2) 优先在 IV Rank > 50% 时卖出；3) 选择基本面优质、你愿意持有的标的。',
       })
     }
   }
 
-  // Tail risk — max single loss / NAV
+  // Tail risk
   if (params.maxLossNavRatio !== null && params.maxLossNavRatio > 0.05) {
     insights.push({
       type: 'negative',
-      message: `最大单笔亏损占账户净值 ${(params.maxLossNavRatio * 100).toFixed(1)}%（超过5%警戒线），尾部风险偏高。建议控制单笔最大仓位在 NAV 的5%以内——即使有70%胜率，连续2-3笔超额亏损会让账户遭受显著回撤。${
-        params.totalTrades < 20 ? '当前仅' + params.totalTrades + '笔交易，样本量不足，高胜率可能存在幸存者偏差。' : ''
-      }`,
+      message: '最大单笔亏损占账户净值 ' + (params.maxLossNavRatio * 100).toFixed(1) + '%（超过5%警戒线），尾部风险偏高。建议控制单笔最大仓位在 NAV 的5%以内——即使有70%胜率，连续2-3笔超额亏损会让账户遭受显著回撤。',
     })
+  }
+
+  // ═══ 最佳策略来源分析 ═══
+  if (params.strategyStats.length >= 2) {
+    const pnlSorted = [...params.strategyStats].sort((a, b) => b.totalPnL - a.totalPnL)
+    const absSum = params.strategyStats.reduce((s, x) => s + Math.abs(x.totalPnL), 0)
+    if (pnlSorted[0].totalPnL > 0 && absSum > 0 && pnlSorted[0].count >= 3) {
+      const pct = (pnlSorted[0].totalPnL / absSum * 100).toFixed(0)
+      insights.push({
+        type: 'positive',
+        message: pnlSorted[0].label + '是主要盈利来源（累计' + formatCurrency(pnlSorted[0].totalPnL) +
+          '，占盈亏贡献' + pct + '%）。建议在该策略上继续深耕、保持优势，同时警惕其他策略的持续亏损。',
+      })
+    }
   }
 
   return insights

@@ -8,7 +8,7 @@ import { DecisionCenter } from '@/components/DecisionCenter'
 import { ToastContainer, showToast } from '@/components/ui/toast'
 import { useStore } from '@/store/useStore'
 import type { Position } from '@/types'
-import { Calculator, Layers, Trophy, PiggyBank, CalendarDays, Settings, X, Wifi, Copy, LayoutDashboard } from 'lucide-react'
+import { Calculator, Layers, NotebookText, PiggyBank, CalendarDays, Settings, X, Wifi, Copy, LayoutDashboard } from 'lucide-react'
 import { fetchStaticMarketData, getQuoteFromStaticData, matchOptionData, formatDataAge } from '@/lib/marketData'
 
 type TabId = 'calculator' | 'positions' | 'cost' | 'performance' | 'today'
@@ -18,7 +18,7 @@ const tabs: { id: TabId; label: string; icon: typeof Calculator }[] = [
   { id: 'calculator', label: '计算器', icon: Calculator },
   { id: 'positions', label: '持仓', icon: Layers },
   { id: 'cost', label: '成本', icon: PiggyBank },
-  { id: 'performance', label: '绩效', icon: Trophy },
+  { id: 'performance', label: '复盘', icon: NotebookText },
 ]
 
 function App() {
